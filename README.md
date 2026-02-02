@@ -26,6 +26,31 @@ irm "https://github.com/SSShogunn/powershell-profile/raw/main/setup.ps1" | iex
    - **PowerShell Core**: `$HOME\Documents\PowerShell\`
    - **Windows PowerShell**: `$HOME\Documents\WindowsPowerShell\`
 
+## Uninstallation
+
+To remove the profile, run:
+
+```powershell
+Uninstall-Profile
+```
+
+This will remove:
+- The PowerShell profile script
+- The update tracking file
+
+> **Note:** Installed packages will NOT be automatically uninstalled. To remove them manually:
+>
+> ```powershell
+> # Remove zoxide
+> winget uninstall ajeetdsouza.zoxide
+>
+> # Remove Speedtest CLI
+> winget uninstall Ookla.Speedtest.CLI
+>
+> # Remove Terminal-Icons module
+> Uninstall-Module Terminal-Icons -AllVersions
+> ```
+
 ## Commands Reference
 
 ### Profile Management
@@ -36,6 +61,7 @@ irm "https://github.com/SSShogunn/powershell-profile/raw/main/setup.ps1" | iex
 | `reload` | Reload the PowerShell profile |
 | `Update-Profile` | Check for and apply profile updates |
 | `Update-PowerShell` | Update PowerShell to latest version |
+| `Uninstall-Profile` | Remove profile configuration |
 | `Show-Help` | Display all available commands |
 
 ### Navigation
@@ -173,9 +199,8 @@ function Update-Profile_Override {
     # Your custom update logic
 }
 
-function Get-Theme_Override {
-    # Your custom Oh-My-Posh theme
-    oh-my-posh init pwsh --config "path/to/theme.json" | Invoke-Expression
+function Clear-Cache_Override {
+    # Your custom cache clearing logic
 }
 ```
 
@@ -183,7 +208,7 @@ function Get-Theme_Override {
 
 This fork has been optimized for fast startup:
 
-- **Disabled by default**: GitHub connectivity check, Terminal-Icons auto-import, Oh-My-Posh, auto-updates
+- **Disabled by default**: GitHub connectivity check, Terminal-Icons auto-import, auto-updates
 - **Lazy loading**: Terminal-Icons loaded on-demand via `icons` command
 - **Zoxide**: Only initialized if already installed (no auto-install)
 
@@ -191,12 +216,6 @@ This fork has been optimized for fast startup:
 
 ```powershell
 # In your profile.ps1
-
-# Re-enable Oh-My-Posh
-$localThemePath = Join-Path (Get-ProfileDir) "cobalt2.omp.json"
-if (Test-Path $localThemePath) {
-    oh-my-posh init pwsh --config $localThemePath | Invoke-Expression
-}
 
 # Re-enable Terminal-Icons at startup
 Import-Module Terminal-Icons
@@ -209,16 +228,7 @@ Import-Module "$env:ChocolateyInstall\helpers\chocolateyProfile.psm1"
 
 - PowerShell 5.1+ (PowerShell 7+ recommended)
 - [zoxide](https://github.com/ajeetdsouza/zoxide) (optional, for `z` command)
-- [Oh-My-Posh](https://ohmyposh.dev/) (optional, disabled by default)
 - [Terminal-Icons](https://github.com/devblackops/Terminal-Icons) (optional, lazy loaded)
-
-## Font Setup
-
-For the best experience with Oh-My-Posh (if enabled), install a Nerd Font:
-
-1. Run `oh-my-posh font install`
-2. Select a font (e.g., CaskaydiaCove, FiraCode, JetBrainsMono)
-3. Configure your terminal to use the installed font
 
 ## License
 
@@ -227,6 +237,5 @@ MIT License - See [LICENSE](LICENSE) for details.
 ## Credits
 
 - Original profile: [ChrisTitusTech/powershell-profile](https://github.com/ChrisTitusTech/powershell-profile)
-- [Oh-My-Posh](https://ohmyposh.dev/)
 - [zoxide](https://github.com/ajeetdsouza/zoxide)
 - [Terminal-Icons](https://github.com/devblackops/Terminal-Icons)

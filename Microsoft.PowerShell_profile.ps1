@@ -125,6 +125,38 @@ if (-not [string]::IsNullOrWhiteSpace($lastExecRaw)) {
     }
 }
 
+# Uninstall Profile
+function Uninstall-Profile {
+    Write-Host "This will remove the PowerShell profile configuration." -ForegroundColor Yellow
+    Write-Host "Note: Installed packages (zoxide, speedtest, etc.) will NOT be uninstalled." -ForegroundColor Cyan
+    $confirm = Read-Host "Are you sure you want to uninstall? (y/N)"
+    if ($confirm -eq 'y' -or $confirm -eq 'Y') {
+        $profilePath = $PROFILE
+        $profileDir = Split-Path $profilePath
+        $timeFile = Join-Path $profileDir "LastExecutionTime.txt"
+
+        # Remove profile file
+        if (Test-Path $profilePath) {
+            Remove-Item $profilePath -Force
+            Write-Host "Removed: $profilePath" -ForegroundColor Green
+        }
+
+        # Remove time tracking file
+        if (Test-Path $timeFile) {
+            Remove-Item $timeFile -Force
+            Write-Host "Removed: $timeFile" -ForegroundColor Green
+        }
+
+        Write-Host "`nProfile uninstalled successfully!" -ForegroundColor Green
+        Write-Host "`nTo uninstall related packages manually, run:" -ForegroundColor Yellow
+        Write-Host "  winget uninstall ajeetdsouza.zoxide" -ForegroundColor Gray
+        Write-Host "  winget uninstall Ookla.Speedtest.CLI" -ForegroundColor Gray
+        Write-Host "`nRestart your terminal to complete the uninstallation." -ForegroundColor Cyan
+    } else {
+        Write-Host "Uninstall cancelled." -ForegroundColor Gray
+    }
+}
+
 # Check for Profile Updates
 function Update-Profile {
     # If function "Update-Profile_Override" is defined in profile.ps1 file
@@ -726,11 +758,6 @@ $scriptblock = {
 }
 Register-ArgumentCompleter -Native -CommandName dotnet -ScriptBlock $scriptblock
 
-# Oh-My-Posh disabled for faster startup
-# To re-enable, uncomment below:
-# $localThemePath = Join-Path (Get-ProfileDir) "cobalt2.omp.json"
-# if (Test-Path $localThemePath) { oh-my-posh init pwsh --config $localThemePath | Invoke-Expression }
-
 # Zoxide init (auto-install removed for faster startup)
 if (Get-Command zoxide -ErrorAction SilentlyContinue) {
     Invoke-Expression (& { (zoxide init --cmd z powershell | Out-String) })
@@ -745,6 +772,7 @@ $($PSStyle.Foreground.Green)Edit-Profile$($PSStyle.Reset) - Opens the current us
 $($PSStyle.Foreground.Green)reload$($PSStyle.Reset) - Reloads the PowerShell profile.
 $($PSStyle.Foreground.Green)Update-Profile$($PSStyle.Reset) - Checks for profile updates from a remote repository and updates if necessary.
 $($PSStyle.Foreground.Green)Update-PowerShell$($PSStyle.Reset) - Checks for the latest PowerShell release and updates if a new version is available.
+$($PSStyle.Foreground.Green)Uninstall-Profile$($PSStyle.Reset) - Removes the profile configuration (packages remain installed).
 
 $($PSStyle.Foreground.Cyan)Navigation$($PSStyle.Reset)
 $($PSStyle.Foreground.Yellow)=======================$($PSStyle.Reset)
