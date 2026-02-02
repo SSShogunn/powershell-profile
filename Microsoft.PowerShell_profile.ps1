@@ -102,9 +102,8 @@ function Debug-Message{
     }
 }
 
-if ($debug) {
-    Debug-Message
-}
+# Debug message disabled
+# if ($debug) { Debug-Message }
 
 
 # Opt-out of telemetry before doing anything, only if PowerShell is run as admin
@@ -112,30 +111,9 @@ if ([bool]([System.Security.Principal.WindowsIdentity]::GetCurrent()).IsSystem) 
     [System.Environment]::SetEnvironmentVariable('POWERSHELL_TELEMETRY_OPTOUT', 'true', [System.EnvironmentVariableTarget]::Machine)
 }
 
-# Initial GitHub.com connectivity check
-function Test-GitHubConnection {
-    if ($PSVersionTable.PSEdition -eq "Core") {
-        # If PowerShell Core, use a 1 second timeout
-        return Test-Connection github.com -Count 1 -Quiet -TimeoutSeconds 1
-    } else {
-        # For PowerShell Desktop, use .NET Ping class with timeout
-        $ping = New-Object System.Net.NetworkInformation.Ping
-        $result = $ping.Send("github.com", 1000)  # 1 second timeout
-        return ($result.Status -eq "Success")
-    }
-}
-$global:canConnectToGitHub = Test-GitHubConnection
-
-# Import Modules and External Profiles
-# Ensure Terminal-Icons module is installed before importing
-if (-not (Get-Module -ListAvailable -Name Terminal-Icons)) {
-    Install-Module -Name Terminal-Icons -Scope CurrentUser -Force -SkipPublisherCheck
-}
-Import-Module -Name Terminal-Icons
-$ChocolateyProfile = "$env:ChocolateyInstall\helpers\chocolateyProfile.psm1"
-if (Test-Path($ChocolateyProfile)) {
-    Import-Module "$ChocolateyProfile"
-}
+# GitHub connectivity check disabled for faster startup
+# $global:canConnectToGitHub = Test-GitHubConnection
+$global:canConnectToGitHub = $true  # Assume connected, check lazily if needed
 
 # Safely read and parse the last execution date once to avoid exceptions when the file is missing or empty
 $lastExecRaw = if (Test-Path $timeFilePath) { (Get-Content -Path $timeFilePath -Raw).Trim() } else { $null }
@@ -173,7 +151,9 @@ function Update-Profile {
     }
 }
 
-# Check if not in debug mode AND (updateInterval is -1 OR file doesn't exist OR time difference is greater than the update interval)
+# Auto-update disabled for faster startup
+# To manually update, run: Update-Profile
+<#
 if (-not $debug -and `
     ($updateInterval -eq -1 -or `
             -not (Test-Path $timeFilePath) -or `
@@ -187,6 +167,7 @@ if (-not $debug -and `
 } elseif ($debug) {
     Write-Warning "Skipping profile update check in debug mode"
 }
+#>
 
 function Update-PowerShell {
     # If function "Update-PowerShell_Override" is defined in profile.ps1 file
@@ -218,8 +199,9 @@ function Update-PowerShell {
     }
 }
 
-# skip in debug mode
-# Check if not in debug mode AND (updateInterval is -1 OR file doesn't exist OR time difference is greater than the update interval)
+# Auto-update disabled for faster startup
+# To manually update, run: Update-PowerShell
+<#
 if (-not $debug -and `
     ($updateInterval -eq -1 -or `
             -not (Test-Path $timeFilePath) -or `
@@ -232,6 +214,7 @@ if (-not $debug -and `
 } elseif ($debug) {
     Write-Warning "Skipping PowerShell update in debug mode"
 }
+#>
 
 function Clear-Cache {
     # If function "Clear-Cache_Override" is defined in profile.ps1 file
@@ -281,21 +264,10 @@ function Test-CommandExists {
     return $exists
 }
 
-# Editor Configuration
-if ($EDITOR_Override){
-    $EDITOR = $EDITOR_Override
-} else {
-    $EDITOR = if (Test-CommandExists nvim) { 'nvim' }
-    elseif (Test-CommandExists pvim) { 'pvim' }
-    elseif (Test-CommandExists vim) { 'vim' }
-    elseif (Test-CommandExists vi) { 'vi' }
-    elseif (Test-CommandExists code) { 'code' }
-    elseif (Test-CommandExists codium) { 'codium' }
-    elseif (Test-CommandExists notepad++) { 'notepad++' }
-    elseif (Test-CommandExists sublime_text) { 'sublime_text' }
-    else { 'notepad' }
-    Set-Alias -Name vim -Value $EDITOR
-}
+# Editor Configuration - hardcoded for faster startup
+# Change this to your preferred editor
+$EDITOR = if ($EDITOR_Override) { $EDITOR_Override } else { 'code' }
+Set-Alias -Name vim -Value $EDITOR
 # Quick Access to Editing the Profile
 function Edit-Profile {
     vim $PROFILE.CurrentUserAllHosts
@@ -554,6 +526,113 @@ function cpy { Set-Clipboard $args[0] }
 
 function pst { Get-Clipboard }
 
+### Enhanced Navigation
+# Quick parent directory navigation
+function .. { Set-Location .. }
+function ... { Set-Location ..\.. }
+function .... { Set-Location ..\..\.. }
+
+# Open current directory in Explorer
+function open { param($path = '.') Start-Process explorer.exe -ArgumentList (Resolve-Path $path) }
+
+# Downloads folder shortcut
+function dl { Set-Location ([Environment]::GetFolderPath("UserProfile") + "\Downloads") }
+
+### Enhanced Git Shortcuts
+# Pretty git log
+function glog { git log --oneline --graph --decorate -20 }
+
+# Git diff
+function gd { git diff $args }
+
+# Git branches
+function gb { git branch $args }
+
+# Git checkout
+function gco { param($branch) git checkout $branch }
+
+# Git stash shortcuts
+function gss { git stash }
+function gsp { git stash pop }
+
+### Speedtest
+# Run internet speed test using Ookla Speedtest CLI
+function speedtest {
+    if (Get-Command speedtest.exe -ErrorAction SilentlyContinue) {
+        speedtest.exe $args
+    } else {
+        Write-Host "Speedtest CLI not found. Installing via winget..." -ForegroundColor Yellow
+        winget install Ookla.Speedtest.CLI --accept-source-agreements --accept-package-agreements
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host "Speedtest installed successfully. Run 'speedtest' again." -ForegroundColor Green
+        } else {
+            Write-Host "Failed to install. Install manually: winget install Ookla.Speedtest.CLI" -ForegroundColor Red
+        }
+    }
+}
+
+### Additional Utilities
+# Get local IP address
+function localip {
+    (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.InterfaceAlias -notmatch 'Loopback' -and $_.IPAddress -notmatch '^169' }).IPAddress
+}
+
+# Reload profile
+function reload { & $PROFILE }
+
+# Quick timer for commands
+function time {
+    param([ScriptBlock]$Command)
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    & $Command
+    $sw.Stop()
+    Write-Host "Elapsed: $($sw.Elapsed.TotalSeconds.ToString('F2'))s" -ForegroundColor Cyan
+}
+
+# Base64 encode/decode
+function b64e { param($text) [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($text)) }
+function b64d { param($text) [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($text)) }
+
+# Quick file hash
+function md5 { param($file) (Get-FileHash $file -Algorithm MD5).Hash }
+function sha256 { param($file) (Get-FileHash $file -Algorithm SHA256).Hash }
+
+### Clipboard/JSON Utilities
+# Format JSON from clipboard
+function jsonclip {
+    Get-Clipboard | ConvertFrom-Json | ConvertTo-Json -Depth 10 | Set-Clipboard
+    Get-Clipboard
+}
+
+# Copy current path to clipboard
+function cpwd {
+    (Get-Location).Path | Set-Clipboard
+    Write-Host "Path copied to clipboard" -ForegroundColor Green
+}
+
+### Process/Port Utilities
+# Find what's using a port
+function port {
+    param($p)
+    Get-NetTCPConnection -LocalPort $p -ErrorAction SilentlyContinue |
+    Select-Object LocalPort, OwningProcess, @{N='Process';E={(Get-Process -Id $_.OwningProcess).ProcessName}}
+}
+
+# Quick process memory usage (top 10)
+function topmem {
+    Get-Process | Sort-Object WorkingSet64 -Descending |
+    Select-Object -First 10 Name, @{N='Mem(MB)';E={[math]::Round($_.WorkingSet64/1MB,1)}}
+}
+
+### Lazy Module Loading
+# Lazy load Terminal-Icons only when needed
+function icons {
+    if (-not (Get-Module Terminal-Icons)) {
+        Import-Module Terminal-Icons -ErrorAction SilentlyContinue
+    }
+    Get-ChildItem | Format-Wide
+}
+
 # Set-PSReadLineOption Compatibility for PowerShell Desktop
 function Set-PSReadLineOptionsCompat {
     param([hashtable]$Options)
@@ -612,22 +691,13 @@ Set-PSReadLineOption -AddToHistoryHandler {
     return ($null -eq $hasSensitive)
 }
 
-# Fix Set-PredictionSource for Desktop
-function Set-PredictionSource {
-    # If "Set-PredictionSource_Override" is defined in profile.ps1 file
-    # then call it instead.
-    if (Get-Command -Name "Set-PredictionSource_Override" -ErrorAction SilentlyContinue) {
-        Set-PredictionSource_Override
-    } elseif ($PSVersionTable.PSEdition -eq "Core") {
-        # Improved prediction settings
-        Set-PSReadLineOption -PredictionSource HistoryAndPlugin
-        Set-PSReadLineOption -MaximumHistoryCount 10000
-    } else {
-        # Desktop version - use History only
-        Set-PSReadLineOption -MaximumHistoryCount 10000
-    }
+# Set prediction source (inlined for faster startup)
+if ($PSVersionTable.PSEdition -eq "Core") {
+    Set-PSReadLineOption -PredictionSource HistoryAndPlugin
+    Set-PSReadLineOption -MaximumHistoryCount 10000
+} else {
+    Set-PSReadLineOption -MaximumHistoryCount 10000
 }
-Set-PredictionSource
 
 # Custom completion for common commands
 $scriptblock = {
@@ -656,42 +726,14 @@ $scriptblock = {
 }
 Register-ArgumentCompleter -Native -CommandName dotnet -ScriptBlock $scriptblock
 
-# If function "Get-Theme_Override" is defined in profile.ps1 file
-# then call it instead.
-if (Get-Command -Name "Get-Theme_Override" -ErrorAction SilentlyContinue) {
-    Get-Theme_Override
-} else {
-    # Oh My Posh initialization with local theme fallback and auto-download
-    $localThemePath = Join-Path (Get-ProfileDir) "cobalt2.omp.json"
-    if (-not (Test-Path $localThemePath)) {
-        # Try to download the theme file to the detected local path
-        $themeUrl = "https://raw.githubusercontent.com/JanDeDobbeleer/oh-my-posh/main/themes/cobalt2.omp.json"
-        try {
-            Invoke-RestMethod -Uri $themeUrl -OutFile $localThemePath
-            Write-Host "Downloaded missing Oh My Posh theme to $localThemePath"
-        } catch {
-            Write-Warning "Failed to download theme file. Falling back to remote theme. Error: $_"
-        }
-    }
-    if (Test-Path $localThemePath) {
-        oh-my-posh init pwsh --config $localThemePath | Invoke-Expression
-    } else {
-        # Fallback to remote theme if local file doesn't exist
-        oh-my-posh init pwsh --config https://raw.githubusercontent.com/JanDeDobbeleer/oh-my-posh/main/themes/cobalt2.omp.json | Invoke-Expression
-    }
-}
+# Oh-My-Posh disabled for faster startup
+# To re-enable, uncomment below:
+# $localThemePath = Join-Path (Get-ProfileDir) "cobalt2.omp.json"
+# if (Test-Path $localThemePath) { oh-my-posh init pwsh --config $localThemePath | Invoke-Expression }
 
+# Zoxide init (auto-install removed for faster startup)
 if (Get-Command zoxide -ErrorAction SilentlyContinue) {
     Invoke-Expression (& { (zoxide init --cmd z powershell | Out-String) })
-} else {
-    Write-Host "zoxide command not found. Attempting to install via winget..."
-    try {
-        winget install -e --id ajeetdsouza.zoxide
-        Write-Host "zoxide installed successfully. Initializing..."
-        Invoke-Expression (& { (zoxide init --cmd z powershell | Out-String) })
-    } catch {
-        Write-Error "Failed to install zoxide. Error: $_"
-    }
 }
 
 # Help Function
@@ -700,53 +742,94 @@ function Show-Help {
 $($PSStyle.Foreground.Cyan)PowerShell Profile Help$($PSStyle.Reset)
 $($PSStyle.Foreground.Yellow)=======================$($PSStyle.Reset)
 $($PSStyle.Foreground.Green)Edit-Profile$($PSStyle.Reset) - Opens the current user's profile for editing using the configured editor.
+$($PSStyle.Foreground.Green)reload$($PSStyle.Reset) - Reloads the PowerShell profile.
 $($PSStyle.Foreground.Green)Update-Profile$($PSStyle.Reset) - Checks for profile updates from a remote repository and updates if necessary.
 $($PSStyle.Foreground.Green)Update-PowerShell$($PSStyle.Reset) - Checks for the latest PowerShell release and updates if a new version is available.
 
+$($PSStyle.Foreground.Cyan)Navigation$($PSStyle.Reset)
+$($PSStyle.Foreground.Yellow)=======================$($PSStyle.Reset)
+$($PSStyle.Foreground.Green)..$($PSStyle.Reset) - Go up one directory level.
+$($PSStyle.Foreground.Green)...$($PSStyle.Reset) - Go up two directory levels.
+$($PSStyle.Foreground.Green)....$($PSStyle.Reset) - Go up three directory levels.
+$($PSStyle.Foreground.Green)docs$($PSStyle.Reset) - Navigate to Documents folder.
+$($PSStyle.Foreground.Green)dtop$($PSStyle.Reset) - Navigate to Desktop folder.
+$($PSStyle.Foreground.Green)dl$($PSStyle.Reset) - Navigate to Downloads folder.
+$($PSStyle.Foreground.Green)open$($PSStyle.Reset) [path] - Open current or specified directory in Explorer.
+
 $($PSStyle.Foreground.Cyan)Git Shortcuts$($PSStyle.Reset)
 $($PSStyle.Foreground.Yellow)=======================$($PSStyle.Reset)
-$($PSStyle.Foreground.Green)g$($PSStyle.Reset) - Changes to the GitHub directory.
+$($PSStyle.Foreground.Green)g$($PSStyle.Reset) - Changes to the GitHub directory (via zoxide).
 $($PSStyle.Foreground.Green)ga$($PSStyle.Reset) - Shortcut for 'git add .'.
+$($PSStyle.Foreground.Green)gb$($PSStyle.Reset) - Shortcut for 'git branch'.
 $($PSStyle.Foreground.Green)gc$($PSStyle.Reset) <message> - Shortcut for 'git commit -m'.
 $($PSStyle.Foreground.Green)gcl$($PSStyle.Reset) <repo> - Shortcut for 'git clone'.
+$($PSStyle.Foreground.Green)gco$($PSStyle.Reset) <branch> - Shortcut for 'git checkout'.
 $($PSStyle.Foreground.Green)gcom$($PSStyle.Reset) <message> - Adds all changes and commits with the specified message.
-$($PSStyle.Foreground.Green)gp$($PSStyle.Reset) - Shortcut for 'git push'.
+$($PSStyle.Foreground.Green)gd$($PSStyle.Reset) - Shortcut for 'git diff'.
+$($PSStyle.Foreground.Green)glog$($PSStyle.Reset) - Pretty git log (last 20 commits).
 $($PSStyle.Foreground.Green)gpull$($PSStyle.Reset) - Shortcut for 'git pull'.
 $($PSStyle.Foreground.Green)gpush$($PSStyle.Reset) - Shortcut for 'git push'.
 $($PSStyle.Foreground.Green)gs$($PSStyle.Reset) - Shortcut for 'git status'.
-$($PSStyle.Foreground.Green)lazyg$($PSStyle.Reset) <message> - Adds all changes, commits with the specified message, and pushes to the remote repository.
+$($PSStyle.Foreground.Green)gss$($PSStyle.Reset) - Shortcut for 'git stash'.
+$($PSStyle.Foreground.Green)gsp$($PSStyle.Reset) - Shortcut for 'git stash pop'.
+$($PSStyle.Foreground.Green)lazyg$($PSStyle.Reset) <message> - Add all, commit, and push in one command.
 
-$($PSStyle.Foreground.Cyan)Shortcuts$($PSStyle.Reset)
+$($PSStyle.Foreground.Cyan)File Operations$($PSStyle.Reset)
+$($PSStyle.Foreground.Yellow)=======================$($PSStyle.Reset)
+$($PSStyle.Foreground.Green)touch$($PSStyle.Reset) <file> - Creates a new empty file.
+$($PSStyle.Foreground.Green)nf$($PSStyle.Reset) <name> - Creates a new file with the specified name.
+$($PSStyle.Foreground.Green)mkcd$($PSStyle.Reset) <dir> - Creates and changes to a new directory.
+$($PSStyle.Foreground.Green)trash$($PSStyle.Reset) <path> - Moves file/folder to Recycle Bin.
+$($PSStyle.Foreground.Green)unzip$($PSStyle.Reset) <file> - Extracts a zip file to the current directory.
+$($PSStyle.Foreground.Green)ff$($PSStyle.Reset) <name> - Finds files recursively with the specified name.
+$($PSStyle.Foreground.Green)head$($PSStyle.Reset) <path> [n] - Displays the first n lines of a file (default 10).
+$($PSStyle.Foreground.Green)tail$($PSStyle.Reset) <path> [n] [-f] - Displays the last n lines of a file (default 10).
+$($PSStyle.Foreground.Green)sed$($PSStyle.Reset) <file> <find> <replace> - Replaces text in a file.
+$($PSStyle.Foreground.Green)grep$($PSStyle.Reset) <regex> [dir] - Searches for a regex pattern in files.
+$($PSStyle.Foreground.Green)md5$($PSStyle.Reset) <file> - Get MD5 hash of a file.
+$($PSStyle.Foreground.Green)sha256$($PSStyle.Reset) <file> - Get SHA256 hash of a file.
+
+$($PSStyle.Foreground.Cyan)Clipboard & Encoding$($PSStyle.Reset)
 $($PSStyle.Foreground.Yellow)=======================$($PSStyle.Reset)
 $($PSStyle.Foreground.Green)cpy$($PSStyle.Reset) <text> - Copies the specified text to the clipboard.
+$($PSStyle.Foreground.Green)pst$($PSStyle.Reset) - Retrieves text from the clipboard.
+$($PSStyle.Foreground.Green)cpwd$($PSStyle.Reset) - Copy current directory path to clipboard.
+$($PSStyle.Foreground.Green)jsonclip$($PSStyle.Reset) - Format JSON from clipboard and copy back.
+$($PSStyle.Foreground.Green)b64e$($PSStyle.Reset) <text> - Base64 encode text.
+$($PSStyle.Foreground.Green)b64d$($PSStyle.Reset) <text> - Base64 decode text.
+
+$($PSStyle.Foreground.Cyan)System & Process$($PSStyle.Reset)
+$($PSStyle.Foreground.Yellow)=======================$($PSStyle.Reset)
+$($PSStyle.Foreground.Green)sysinfo$($PSStyle.Reset) - Displays detailed system information.
+$($PSStyle.Foreground.Green)uptime$($PSStyle.Reset) - Displays the system uptime.
 $($PSStyle.Foreground.Green)df$($PSStyle.Reset) - Displays information about volumes.
-$($PSStyle.Foreground.Green)docs$($PSStyle.Reset) - Changes the current directory to the user's Documents folder.
-$($PSStyle.Foreground.Green)dtop$($PSStyle.Reset) - Changes the current directory to the user's Desktop folder.
-$($PSStyle.Foreground.Green)ep$($PSStyle.Reset) - Opens the profile for editing.
-$($PSStyle.Foreground.Green)export$($PSStyle.Reset) <name> <value> - Sets an environment variable.
-$($PSStyle.Foreground.Green)ff$($PSStyle.Reset) <name> - Finds files recursively with the specified name.
-$($PSStyle.Foreground.Green)flushdns$($PSStyle.Reset) - Clears the DNS cache.
-$($PSStyle.Foreground.Green)pubip$($PSStyle.Reset) - Retrieves the public IP address of the machine.
-$($PSStyle.Foreground.Green)grep$($PSStyle.Reset) <regex> [dir] - Searches for a regex pattern in files within the specified directory or from the pipeline input.
-$($PSStyle.Foreground.Green)hb$($PSStyle.Reset) <file> - Uploads the specified file's content to a hastebin-like service and returns the URL.
-$($PSStyle.Foreground.Green)head$($PSStyle.Reset) <path> [n] - Displays the first n lines of a file (default 10).
-$($PSStyle.Foreground.Green)k9$($PSStyle.Reset) <name> - Kills a process by name.
-$($PSStyle.Foreground.Green)la$($PSStyle.Reset) - Lists all files in the current directory with detailed formatting.
-$($PSStyle.Foreground.Green)ll$($PSStyle.Reset) - Lists all files, including hidden, in the current directory with detailed formatting.
-$($PSStyle.Foreground.Green)mkcd$($PSStyle.Reset) <dir> - Creates and changes to a new directory.
-$($PSStyle.Foreground.Green)nf$($PSStyle.Reset) <name> - Creates a new file with the specified name.
 $($PSStyle.Foreground.Green)pgrep$($PSStyle.Reset) <name> - Lists processes by name.
 $($PSStyle.Foreground.Green)pkill$($PSStyle.Reset) <name> - Kills processes by name.
-$($PSStyle.Foreground.Green)pst$($PSStyle.Reset) - Retrieves text from the clipboard.
-$($PSStyle.Foreground.Green)sed$($PSStyle.Reset) <file> <find> <replace> - Replaces text in a file.
-$($PSStyle.Foreground.Green)sysinfo$($PSStyle.Reset) - Displays detailed system information.
-$($PSStyle.Foreground.Green)tail$($PSStyle.Reset) <path> [n] - Displays the last n lines of a file (default 10).
-$($PSStyle.Foreground.Green)touch$($PSStyle.Reset) <file> - Creates a new empty file.
-$($PSStyle.Foreground.Green)unzip$($PSStyle.Reset) <file> - Extracts a zip file to the current directory.
-$($PSStyle.Foreground.Green)uptime$($PSStyle.Reset) - Displays the system uptime.
+$($PSStyle.Foreground.Green)k9$($PSStyle.Reset) <name> - Kills a process by name.
+$($PSStyle.Foreground.Green)topmem$($PSStyle.Reset) - Shows top 10 processes by memory usage.
+$($PSStyle.Foreground.Green)port$($PSStyle.Reset) <port> - Shows what process is using a specific port.
+$($PSStyle.Foreground.Green)admin$($PSStyle.Reset) [command] - Opens elevated PowerShell or runs command elevated.
+$($PSStyle.Foreground.Green)su$($PSStyle.Reset) - Alias for admin.
+
+$($PSStyle.Foreground.Cyan)Networking$($PSStyle.Reset)
+$($PSStyle.Foreground.Yellow)=======================$($PSStyle.Reset)
+$($PSStyle.Foreground.Green)pubip$($PSStyle.Reset) - Retrieves the public IP address.
+$($PSStyle.Foreground.Green)localip$($PSStyle.Reset) - Retrieves local IP address(es).
+$($PSStyle.Foreground.Green)flushdns$($PSStyle.Reset) - Clears the DNS cache.
+$($PSStyle.Foreground.Green)speedtest$($PSStyle.Reset) - Run internet speed test (auto-installs Ookla CLI).
+
+$($PSStyle.Foreground.Cyan)Utilities$($PSStyle.Reset)
+$($PSStyle.Foreground.Yellow)=======================$($PSStyle.Reset)
 $($PSStyle.Foreground.Green)which$($PSStyle.Reset) <name> - Shows the path of the command.
-$($PSStyle.Foreground.Green)winutil$($PSStyle.Reset) - Runs the latest WinUtil full-release script from Chris Titus Tech.
-$($PSStyle.Foreground.Green)winutildev$($PSStyle.Reset) - Runs the latest WinUtil pre-release script from Chris Titus Tech.
+$($PSStyle.Foreground.Green)export$($PSStyle.Reset) <name> <value> - Sets an environment variable.
+$($PSStyle.Foreground.Green)time$($PSStyle.Reset) { command } - Times the execution of a command.
+$($PSStyle.Foreground.Green)hb$($PSStyle.Reset) <file> - Uploads file content to hastebin and copies URL.
+$($PSStyle.Foreground.Green)la$($PSStyle.Reset) - Lists all files in the current directory.
+$($PSStyle.Foreground.Green)ll$($PSStyle.Reset) - Lists all files including hidden.
+$($PSStyle.Foreground.Green)icons$($PSStyle.Reset) - List files with Terminal-Icons (lazy loaded).
+$($PSStyle.Foreground.Green)Clear-Cache$($PSStyle.Reset) - Clears Windows temp and cache files.
+$($PSStyle.Foreground.Green)winutil$($PSStyle.Reset) - Runs WinUtil full-release.
+$($PSStyle.Foreground.Green)winutildev$($PSStyle.Reset) - Runs WinUtil dev-release.
 $($PSStyle.Foreground.Yellow)=======================$($PSStyle.Reset)
 
 Use '$($PSStyle.Foreground.Magenta)Show-Help$($PSStyle.Reset)' to display this help message.
