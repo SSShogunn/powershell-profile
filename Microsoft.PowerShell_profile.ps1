@@ -1,58 +1,9 @@
-### PowerShell Profile Refactor
-### Version 1.04 - Refactored
-
-$debug = $false
-
-#################################################################################################################################
-############                                                                                                         ############
-############                                          !!!   WARNING:   !!!                                           ############
-############                                                                                                         ############
-############                DO NOT MODIFY THIS FILE. THIS FILE IS HASHED AND UPDATED AUTOMATICALLY.                  ############
-############                    ANY CHANGES MADE TO THIS FILE WILL BE OVERWRITTEN BY COMMITS TO                      ############
-############                       https://github.com/ChrisTitusTech/powershell-profile.git.                         ############
-############                                                                                                         ############
-#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!#
-############                                                                                                         ############
-############                      TO ADD YOUR OWN CODE OR IF YOU WANT TO OVERRIDE ANY OF THESE VARIABLES             ############
-############                      OR FUNCTIONS. USE THE Edit-Profile FUNCTION TO CREATE YOUR OWN profile.ps1 FILE.   ############
-############                      TO OVERRIDE IN YOUR NEW profile.ps1 FILE, REWRITE THE VARIABLE                     ############
-############                      OR FUNCTION, ADDING "_Override" TO THE NAME.                                       ############
-############                                                                                                         ############
-############                      THE FOLLOWING VARIABLES RESPECT _Override:                                         ############
-############                      $EDITOR_Override                                                                   ############
-############                      $debug_Override                                                                    ############
-############                      $repo_root_Override  [To point to a fork, for example]                             ############
-############                      $timeFilePath_Override                                                             ############
-############                      $updateInterval_Override                                                           ############
-############                                                                                                         ############
-############                      THE FOLLOWING FUNCTIONS RESPECT _Override:                                         ############
-############                      Debug-Message_Override                                                             ############
-############                      Update-Profile_Override                                                            ############
-############                      Update-PowerShell_Override                                                         ############
-############                      Clear-Cache_Override                                                               ############
-############                      Get-Theme_Override                                                                 ############
-############                      WinUtilDev_Override [To call a fork, for example]                                  ############
-############                      Set-PredictionSource                                                               ############
-#################################################################################################################################
-
-if ($debug_Override){
-    # If variable debug_Override is defined in profile.ps1 file
-    # then use it instead
-    $debug = $debug_Override
-} else {
-    $debug = $false
-}
-
-# Define the path to the file that stores the last execution time
 if ($repo_root_Override){
-    # If variable $repo_root_Override is defined in profile.ps1 file
-    # then use it instead
     $repo_root = $repo_root_Override
 } else {
     $repo_root = "https://raw.githubusercontent.com/ChrisTitusTech"
 }
 
-# Helper function for cross-edition compatibility
 function Get-ProfileDir {
     if ($PSVersionTable.PSEdition -eq "Core") {
         return [Environment]::GetFolderPath("MyDocuments") + "\PowerShell"
@@ -64,58 +15,25 @@ function Get-ProfileDir {
     }
 }
 
-# Define the path to the file that stores the last execution time
 if ($timeFilePath_Override){
-    # If variable $timeFilePath_Override is defined in profile.ps1 file
-    # then use it instead
     $timeFilePath = $timeFilePath_Override
 } else {
     $profileDir = Get-ProfileDir
     $timeFilePath = "$profileDir\LastExecutionTime.txt"
 }
 
-# Define the update interval in days, set to -1 to always check
 if ($updateInterval_Override){
-    # If variable $updateInterval_Override is defined in profile.ps1 file
-    # then use it instead
     $updateInterval = $updateInterval_Override
 } else {
     $updateInterval = 7
 }
 
-function Debug-Message{
-    # If function "Debug-Message_Override" is defined in profile.ps1 file
-    # then call it instead.
-    if (Get-Command -Name "Debug-Message_Override" -ErrorAction SilentlyContinue) {
-        Debug-Message_Override
-    } else {
-        Write-Host "#######################################" -ForegroundColor Red
-        Write-Host "#           Debug mode enabled        #" -ForegroundColor Red
-        Write-Host "#          ONLY FOR DEVELOPMENT       #" -ForegroundColor Red
-        Write-Host "#                                     #" -ForegroundColor Red
-        Write-Host "#       IF YOU ARE NOT DEVELOPING     #" -ForegroundColor Red
-        Write-Host "#       JUST RUN \`Update-Profile\`     #" -ForegroundColor Red
-        Write-Host "#        to discard all changes       #" -ForegroundColor Red
-        Write-Host "#   and update to the latest profile  #" -ForegroundColor Red
-        Write-Host "#               version               #" -ForegroundColor Red
-        Write-Host "#######################################" -ForegroundColor Red
-    }
-}
-
-# Debug message disabled
-# if ($debug) { Debug-Message }
-
-
-# Opt-out of telemetry before doing anything, only if PowerShell is run as admin
 if ([bool]([System.Security.Principal.WindowsIdentity]::GetCurrent()).IsSystem) {
     [System.Environment]::SetEnvironmentVariable('POWERSHELL_TELEMETRY_OPTOUT', 'true', [System.EnvironmentVariableTarget]::Machine)
 }
 
-# GitHub connectivity check disabled for faster startup
-# $global:canConnectToGitHub = Test-GitHubConnection
-$global:canConnectToGitHub = $true  # Assume connected, check lazily if needed
+$global:canConnectToGitHub = $true
 
-# Safely read and parse the last execution date once to avoid exceptions when the file is missing or empty
 $lastExecRaw = if (Test-Path $timeFilePath) { (Get-Content -Path $timeFilePath -Raw).Trim() } else { $null }
 [Nullable[datetime]]$lastExec = $null
 if (-not [string]::IsNullOrWhiteSpace($lastExecRaw)) {
@@ -125,7 +43,6 @@ if (-not [string]::IsNullOrWhiteSpace($lastExecRaw)) {
     }
 }
 
-# Uninstall Profile
 function Uninstall-Profile {
     Write-Host "This will remove the PowerShell profile configuration." -ForegroundColor Yellow
     Write-Host "Note: Installed packages (zoxide, speedtest, etc.) will NOT be uninstalled." -ForegroundColor Cyan
@@ -135,13 +52,11 @@ function Uninstall-Profile {
         $profileDir = Split-Path $profilePath
         $timeFile = Join-Path $profileDir "LastExecutionTime.txt"
 
-        # Remove profile file
         if (Test-Path $profilePath) {
             Remove-Item $profilePath -Force
             Write-Host "Removed: $profilePath" -ForegroundColor Green
         }
 
-        # Remove time tracking file
         if (Test-Path $timeFile) {
             Remove-Item $timeFile -Force
             Write-Host "Removed: $timeFile" -ForegroundColor Green
@@ -157,10 +72,7 @@ function Uninstall-Profile {
     }
 }
 
-# Check for Profile Updates
 function Update-Profile {
-    # If function "Update-Profile_Override" is defined in profile.ps1 file
-    # then call it instead.
     if (Get-Command -Name "Update-Profile_Override" -ErrorAction SilentlyContinue) {
         Update-Profile_Override
     } else {
@@ -183,27 +95,7 @@ function Update-Profile {
     }
 }
 
-# Auto-update disabled for faster startup
-# To manually update, run: Update-Profile
-<#
-if (-not $debug -and `
-    ($updateInterval -eq -1 -or `
-            -not (Test-Path $timeFilePath) -or `
-            $null -eq $lastExec -or `
-        ((Get-Date) - $lastExec).TotalDays -gt $updateInterval)) {
-
-    Update-Profile
-    $currentTime = Get-Date -Format 'yyyy-MM-dd'
-    $currentTime | Out-File -FilePath $timeFilePath
-
-} elseif ($debug) {
-    Write-Warning "Skipping profile update check in debug mode"
-}
-#>
-
 function Update-PowerShell {
-    # If function "Update-PowerShell_Override" is defined in profile.ps1 file
-    # then call it instead.
     if (Get-Command -Name "Update-PowerShell_Override" -ErrorAction SilentlyContinue) {
         Update-PowerShell_Override
     } else {
@@ -231,49 +123,21 @@ function Update-PowerShell {
     }
 }
 
-# Auto-update disabled for faster startup
-# To manually update, run: Update-PowerShell
-<#
-if (-not $debug -and `
-    ($updateInterval -eq -1 -or `
-            -not (Test-Path $timeFilePath) -or `
-            $null -eq $lastExec -or `
-        ((Get-Date).Date - $lastExec.Date).TotalDays -gt $updateInterval)) {
-
-    Update-PowerShell
-    $currentTime = Get-Date -Format 'yyyy-MM-dd'
-    $currentTime | Out-File -FilePath $timeFilePath
-} elseif ($debug) {
-    Write-Warning "Skipping PowerShell update in debug mode"
-}
-#>
-
 function Clear-Cache {
-    # If function "Clear-Cache_Override" is defined in profile.ps1 file
-    # then call it instead.
-    # -----------------------------------------------------------------
-    # If you do override this function, you should should probably duplicate
-    # the following calls in your override function, just don't call this
-    # function from your override function, otherwise you'll be in an infinate loop.
     if (Get-Command -Name "Clear-Cache_Override" -ErrorAction SilentlyContinue) {
         Clear-Cache_Override
     } else {
-        # add clear cache logic here
         Write-Host "Clearing cache..." -ForegroundColor Cyan
 
-        # Clear Windows Prefetch
         Write-Host "Clearing Windows Prefetch..." -ForegroundColor Yellow
         Remove-Item -Path "$env:SystemRoot\Prefetch\*" -Force -ErrorAction SilentlyContinue
 
-        # Clear Windows Temp
         Write-Host "Clearing Windows Temp..." -ForegroundColor Yellow
         Remove-Item -Path "$env:SystemRoot\Temp\*" -Recurse -Force -ErrorAction SilentlyContinue
 
-        # Clear User Temp
         Write-Host "Clearing User Temp..." -ForegroundColor Yellow
         Remove-Item -Path "$env:TEMP\*" -Recurse -Force -ErrorAction SilentlyContinue
 
-        # Clear Internet Explorer Cache
         Write-Host "Clearing Internet Explorer Cache..." -ForegroundColor Yellow
         Remove-Item -Path "$env:LOCALAPPDATA\Microsoft\Windows\INetCache\*" -Recurse -Force -ErrorAction SilentlyContinue
 
@@ -281,7 +145,6 @@ function Clear-Cache {
     }
 }
 
-# Admin Check and Prompt Customization
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 function prompt {
     if ($isAdmin) { "[" + (Get-Location) + "] # " } else { "[" + (Get-Location) + "] $ " }
@@ -289,18 +152,14 @@ function prompt {
 $adminSuffix = if ($isAdmin) { " [ADMIN]" } else { "" }
 $Host.UI.RawUI.WindowTitle = "PowerShell {0}$adminSuffix" -f $PSVersionTable.PSVersion.ToString()
 
-# Utility Functions
 function Test-CommandExists {
     param($command)
     $exists = $null -ne (Get-Command $command -ErrorAction SilentlyContinue)
     return $exists
 }
 
-# Editor Configuration - hardcoded for faster startup
-# Change this to your preferred editor
 $EDITOR = if ($EDITOR_Override) { $EDITOR_Override } else { 'code' }
 Set-Alias -Name vim -Value $EDITOR
-# Quick Access to Editing the Profile
 function Edit-Profile {
     vim $PROFILE.CurrentUserAllHosts
 }
@@ -320,18 +179,13 @@ function ff($name) {
     }
 }
 
-# Network Utilities
 function pubip { (Invoke-WebRequest http://ifconfig.me/ip).Content }
 
-# Open WinUtil full-release
 function winutil {
     Invoke-Expression (Invoke-RestMethod https://christitus.com/win)
 }
 
-# Open WinUtil dev-release
 function winutildev {
-    # If function "WinUtilDev_Override" is defined in profile.ps1 file
-    # then call it instead.
     if (Get-Command -Name "WinUtilDev_Override" -ErrorAction SilentlyContinue) {
         WinUtilDev_Override
     } else {
@@ -339,7 +193,6 @@ function winutildev {
     }
 }
 
-# System Utilities
 function admin {
     if ($args.Count -gt 0) {
         $argList = $args -join ' '
@@ -349,42 +202,33 @@ function admin {
     }
 }
 
-# Set UNIX-like aliases for the admin command, so sudo <command> will run the command with elevated rights.
 Set-Alias -Name su -Value admin
 
 function uptime {
     try {
-        # find date/time format
         $dateFormat = [System.Globalization.CultureInfo]::CurrentCulture.DateTimeFormat.ShortDatePattern
         $timeFormat = [System.Globalization.CultureInfo]::CurrentCulture.DateTimeFormat.LongTimePattern
 
-        # check powershell version
         if ($PSVersionTable.PSVersion.Major -eq 5) {
             $lastBoot = (Get-WmiObject win32_operatingsystem).LastBootUpTime
             $bootTime = [System.Management.ManagementDateTimeConverter]::ToDateTime($lastBoot)
 
-            # reformat lastBoot
             $lastBoot = $bootTime.ToString("$dateFormat $timeFormat")
         } else {
-            # the Get-Uptime cmdlet was introduced in PowerShell 6.0
             $lastBoot = (Get-Uptime -Since).ToString("$dateFormat $timeFormat")
             $bootTime = [System.DateTime]::ParseExact($lastBoot, "$dateFormat $timeFormat", [System.Globalization.CultureInfo]::InvariantCulture)
         }
 
-        # Format the start time
         $formattedBootTime = $bootTime.ToString("dddd, MMMM dd, yyyy HH:mm:ss", [System.Globalization.CultureInfo]::InvariantCulture) + " [$lastBoot]"
         Write-Host "System started on: $formattedBootTime" -ForegroundColor DarkGray
 
-        # calculate uptime
         $uptime = (Get-Date) - $bootTime
 
-        # Uptime in days, hours, minutes, and seconds
         $days = $uptime.Days
         $hours = $uptime.Hours
         $minutes = $uptime.Minutes
         $seconds = $uptime.Seconds
 
-        # Uptime output
         Write-Host ("Uptime: {0} days, {1} hours, {2} minutes, {3} seconds" -f $days, $hours, $minutes, $seconds) -ForegroundColor Blue
 
     } catch {
@@ -465,10 +309,8 @@ function tail {
     Get-Content $Path -Tail $n -Wait:$f
 }
 
-# Quick File Creation
 function nf { param($name) New-Item -ItemType "file" -Path . -Name $name }
 
-# Directory Management
 function mkcd { param($dir) mkdir $dir -Force; Set-Location $dir }
 
 function trash($path) {
@@ -478,10 +320,8 @@ function trash($path) {
         $item = Get-Item $fullPath
 
         if ($item.PSIsContainer) {
-            # Handle directory
             $parentPath = $item.Parent.FullName
         } else {
-            # Handle file
             $parentPath = $item.DirectoryName
         }
 
@@ -499,9 +339,6 @@ function trash($path) {
     }
 }
 
-### Quality of Life Aliases
-
-# Navigation Shortcuts
 function docs {
     $docs = if(([Environment]::GetFolderPath("MyDocuments"))) {([Environment]::GetFolderPath("MyDocuments"))} else {$HOME + "\Documents"}
     Set-Location -Path $docs
@@ -512,14 +349,11 @@ function dtop {
     Set-Location -Path $dtop
 }
 
-# Simplified Process Management
 function k9 { Stop-Process -Name $args[0] }
 
-# Enhanced Listing
 function la { Get-ChildItem | Format-Table -AutoSize }
 function ll { Get-ChildItem -Force | Format-Table -AutoSize }
 
-# Git Shortcuts
 function gs { git status }
 
 function ga { git add . }
@@ -544,51 +378,36 @@ function lazyg {
     git push
 }
 
-# Quick Access to System Information
 function sysinfo { Get-ComputerInfo }
 
-# Networking Utilities
 function flushdns {
     Clear-DnsClientCache
     Write-Host "DNS has been flushed"
 }
 
-# Clipboard Utilities
 function cpy { Set-Clipboard $args[0] }
 
 function pst { Get-Clipboard }
 
-### Enhanced Navigation
-# Quick parent directory navigation
 function .. { Set-Location .. }
 function ... { Set-Location ..\.. }
 function .... { Set-Location ..\..\.. }
 
-# Open current directory in Explorer
 function open { param($path = '.') Start-Process explorer.exe -ArgumentList (Resolve-Path $path) }
 
-# Downloads folder shortcut
 function dl { Set-Location ([Environment]::GetFolderPath("UserProfile") + "\Downloads") }
 
-### Enhanced Git Shortcuts
-# Pretty git log
 function glog { git log --oneline --graph --decorate -20 }
 
-# Git diff
 function gd { git diff $args }
 
-# Git branches
 function gb { git branch $args }
 
-# Git checkout
 function gco { param($branch) git checkout $branch }
 
-# Git stash shortcuts
 function gss { git stash }
 function gsp { git stash pop }
 
-### Speedtest
-# Run internet speed test using Ookla Speedtest CLI
 function speedtest {
     if (Get-Command speedtest.exe -ErrorAction SilentlyContinue) {
         speedtest.exe $args
@@ -603,16 +422,12 @@ function speedtest {
     }
 }
 
-### Additional Utilities
-# Get local IP address
 function localip {
     (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.InterfaceAlias -notmatch 'Loopback' -and $_.IPAddress -notmatch '^169' }).IPAddress
 }
 
-# Reload profile
 function reload { & $PROFILE }
 
-# Quick timer for commands
 function time {
     param([ScriptBlock]$Command)
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
@@ -621,43 +436,33 @@ function time {
     Write-Host "Elapsed: $($sw.Elapsed.TotalSeconds.ToString('F2'))s" -ForegroundColor Cyan
 }
 
-# Base64 encode/decode
 function b64e { param($text) [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($text)) }
 function b64d { param($text) [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($text)) }
 
-# Quick file hash
 function md5 { param($file) (Get-FileHash $file -Algorithm MD5).Hash }
 function sha256 { param($file) (Get-FileHash $file -Algorithm SHA256).Hash }
 
-### Clipboard/JSON Utilities
-# Format JSON from clipboard
 function jsonclip {
     Get-Clipboard | ConvertFrom-Json | ConvertTo-Json -Depth 10 | Set-Clipboard
     Get-Clipboard
 }
 
-# Copy current path to clipboard
 function cpwd {
     (Get-Location).Path | Set-Clipboard
     Write-Host "Path copied to clipboard" -ForegroundColor Green
 }
 
-### Process/Port Utilities
-# Find what's using a port
 function port {
     param($p)
     Get-NetTCPConnection -LocalPort $p -ErrorAction SilentlyContinue |
     Select-Object LocalPort, OwningProcess, @{N='Process';E={(Get-Process -Id $_.OwningProcess).ProcessName}}
 }
 
-# Quick process memory usage (top 10)
 function topmem {
     Get-Process | Sort-Object WorkingSet64 -Descending |
     Select-Object -First 10 Name, @{N='Mem(MB)';E={[math]::Round($_.WorkingSet64/1MB,1)}}
 }
 
-### Lazy Module Loading
-# Lazy load Terminal-Icons only when needed
 function icons {
     if (-not (Get-Module Terminal-Icons)) {
         Import-Module Terminal-Icons -ErrorAction SilentlyContinue
@@ -665,13 +470,11 @@ function icons {
     Get-ChildItem | Format-Wide
 }
 
-# Set-PSReadLineOption Compatibility for PowerShell Desktop
 function Set-PSReadLineOptionsCompat {
     param([hashtable]$Options)
     if ($PSVersionTable.PSEdition -eq "Core") {
         Set-PSReadLineOption @Options
     } else {
-        # Remove unsupported keys for Desktop and silence errors
         $SafeOptions = $Options.Clone()
         $SafeOptions.Remove('PredictionSource')
         $SafeOptions.Remove('PredictionViewStyle')
@@ -679,23 +482,21 @@ function Set-PSReadLineOptionsCompat {
     }
 }
 
-# Enhanced PowerShell Experience
-# Enhanced PSReadLine Configuration
 $PSReadLineOptions = @{
     EditMode = 'Windows'
     HistoryNoDuplicates = $true
     HistorySearchCursorMovesToEnd = $true
     Colors = @{
-        Command = '#87CEEB'  # SkyBlue (pastel)
-        Parameter = '#98FB98'  # PaleGreen (pastel)
-        Operator = '#FFB6C1'  # LightPink (pastel)
-        Variable = '#DDA0DD'  # Plum (pastel)
-        String = '#FFDAB9'  # PeachPuff (pastel)
-        Number = '#B0E0E6'  # PowderBlue (pastel)
-        Type = '#F0E68C'  # Khaki (pastel)
-        Comment = '#D3D3D3'  # LightGray (pastel)
-        Keyword = '#8367c7'  # Violet (pastel)
-        Error = '#FF6347'  # Tomato (keeping it close to red for visibility)
+        Command = '#87CEEB'
+        Parameter = '#98FB98'
+        Operator = '#FFB6C1'
+        Variable = '#DDA0DD'
+        String = '#FFDAB9'
+        Number = '#B0E0E6'
+        Type = '#F0E68C'
+        Comment = '#D3D3D3'
+        Keyword = '#8367c7'
+        Error = '#FF6347'
     }
     PredictionSource = 'History'
     PredictionViewStyle = 'ListView'
@@ -703,7 +504,6 @@ $PSReadLineOptions = @{
 }
 Set-PSReadLineOptionsCompat -Options $PSReadLineOptions
 
-# Custom key handlers
 Set-PSReadLineKeyHandler -Key UpArrow -Function HistorySearchBackward
 Set-PSReadLineKeyHandler -Key DownArrow -Function HistorySearchForward
 Set-PSReadLineKeyHandler -Key Tab -Function MenuComplete
@@ -715,7 +515,6 @@ Set-PSReadLineKeyHandler -Chord 'Ctrl+RightArrow' -Function ForwardWord
 Set-PSReadLineKeyHandler -Chord 'Ctrl+z' -Function Undo
 Set-PSReadLineKeyHandler -Chord 'Ctrl+y' -Function Redo
 
-# Custom functions for PSReadLine
 Set-PSReadLineOption -AddToHistoryHandler {
     param($line)
     $sensitive = @('password', 'secret', 'token', 'apikey', 'connectionstring')
@@ -723,7 +522,6 @@ Set-PSReadLineOption -AddToHistoryHandler {
     return ($null -eq $hasSensitive)
 }
 
-# Set prediction source (inlined for faster startup)
 if ($PSVersionTable.PSEdition -eq "Core") {
     Set-PSReadLineOption -PredictionSource HistoryAndPlugin
     Set-PSReadLineOption -MaximumHistoryCount 10000
@@ -731,7 +529,6 @@ if ($PSVersionTable.PSEdition -eq "Core") {
     Set-PSReadLineOption -MaximumHistoryCount 10000
 }
 
-# Custom completion for common commands
 $scriptblock = {
     param($wordToComplete, $commandAst, $cursorPosition)
     $customCompletions = @{
@@ -758,12 +555,10 @@ $scriptblock = {
 }
 Register-ArgumentCompleter -Native -CommandName dotnet -ScriptBlock $scriptblock
 
-# Zoxide init (auto-install removed for faster startup)
 if (Get-Command zoxide -ErrorAction SilentlyContinue) {
     Invoke-Expression (& { (zoxide init --cmd z powershell | Out-String) })
 }
 
-# Help Function
 function Show-Help {
     $helpText = @"
 $($PSStyle.Foreground.Cyan)PowerShell Profile Help$($PSStyle.Reset)

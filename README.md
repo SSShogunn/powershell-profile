@@ -185,7 +185,6 @@ Create a `profile.ps1` file in the same directory using `Edit-Profile` to add cu
 ```powershell
 # In your profile.ps1
 $EDITOR_Override = 'nvim'           # Your preferred editor
-$debug_Override = $true             # Enable debug mode
 $repo_root_Override = "https://..."  # Point to your fork
 $updateInterval_Override = 14        # Days between update checks
 ```
