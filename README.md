@@ -19,13 +19,6 @@ A fast, feature-rich PowerShell profile optimized for developer productivity. Fo
 irm "https://github.com/SSShogunn/powershell-profile/raw/main/setup.ps1" | iex
 ```
 
-### Manual Installation
-
-1. Clone the repository
-2. Copy `Microsoft.PowerShell_profile.ps1` to your PowerShell profile directory:
-   - **PowerShell Core**: `$HOME\Documents\PowerShell\`
-   - **Windows PowerShell**: `$HOME\Documents\WindowsPowerShell\`
-
 ## Uninstallation
 
 To remove the profile, run:
