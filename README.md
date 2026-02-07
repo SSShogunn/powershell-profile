@@ -89,6 +89,21 @@ This will remove:
 | `gcom <msg>` | Add all and commit |
 | `lazyg <msg>` | Add all, commit, and push |
 | `g` | Jump to GitHub directory (via zoxide) |
+| `gpr` | Push branch and create pull request (via `gh`) |
+| `gclean` | Delete local branches already merged into main |
+| `gwip` | Quick "work in progress" commit |
+
+### Docker
+
+| Command | Description |
+|---------|-------------|
+| `dps` | List running containers |
+| `dpa` | List all containers |
+| `dcu` | `docker compose up` |
+| `dcd` | `docker compose down` |
+| `dcb` | `docker compose build` |
+| `dlogs <container>` | Follow container logs |
+| `dprune` | Remove all unused Docker resources |
 
 ### File Operations
 
@@ -131,6 +146,7 @@ This will remove:
 | `k9 <name>` | Kill process by name |
 | `topmem` | Show top 10 memory-consuming processes |
 | `port <port>` | Show process using a port |
+| `kport <port>` | Kill process using a port |
 | `admin [cmd]` / `su` | Run elevated PowerShell or command |
 
 ### Networking
@@ -141,6 +157,8 @@ This will remove:
 | `localip` | Get local IP address(es) |
 | `flushdns` | Clear DNS cache |
 | `speedtest` | Run internet speed test (auto-installs Ookla CLI) |
+| `get <url>` | GET request, display JSON response |
+| `post <url> [body]` | POST JSON request, display response |
 
 ### Utilities
 
@@ -156,6 +174,12 @@ This will remove:
 | `Clear-Cache` | Clear Windows temp files |
 | `winutil` | Run Chris Titus WinUtil |
 | `winutildev` | Run Chris Titus WinUtil (dev) |
+| `pathadd <dir>` | Add directory to PATH (current session) |
+| `pathremove <dir>` | Remove directory from PATH (current session) |
+| `epoch` | Current Unix timestamp |
+| `fromepoch <ts>` | Convert Unix timestamp to local date |
+| `dsize [path]` | Show directory size (default: current) |
+| `envs [filter]` | List/search environment variables |
 
 ## Keyboard Shortcuts (PSReadLine)
 

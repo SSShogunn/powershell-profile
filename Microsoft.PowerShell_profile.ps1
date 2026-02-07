@@ -422,6 +422,18 @@ function lazyg {
 
 function sysinfo { Get-ComputerInfo }
 
+function dps { docker ps $args }
+function dpa { docker ps -a $args }
+function dcu { docker compose up $args }
+function dcd { docker compose down $args }
+function dcb { docker compose build $args }
+function dlogs { param($container) docker logs -f $container }
+function dprune {
+    Write-Host "Pruning Docker system..." -ForegroundColor Yellow
+    docker system prune -af --volumes
+    Write-Host "Docker prune complete." -ForegroundColor Green
+}
+
 function flushdns {
     Clear-DnsClientCache
     Write-Host "DNS has been flushed"
@@ -449,6 +461,32 @@ function gco { param($branch) git checkout $branch }
 
 function gss { git stash }
 function gsp { git stash pop }
+
+function gpr {
+    $branch = git rev-parse --abbrev-ref HEAD
+    git push -u origin $branch
+    if (Get-Command gh -ErrorAction SilentlyContinue) {
+        gh pr create --fill
+    } else {
+        Write-Host "gh CLI not found. Install: winget install GitHub.cli" -ForegroundColor Yellow
+    }
+}
+
+function gclean {
+    $main = git symbolic-ref refs/remotes/origin/HEAD 2>$null
+    if (-not $main) { $main = 'main' } else { $main = ($main -split '/')[-1] }
+    git branch --merged $main | Where-Object { $_ -notmatch "^\*|$main" } | ForEach-Object {
+        $b = $_.Trim()
+        git branch -d $b
+        Write-Host "Deleted: $b" -ForegroundColor Green
+    }
+}
+
+function gwip {
+    git add .
+    git commit -m "wip: work in progress [skip ci]"
+    Write-Host "WIP commit created." -ForegroundColor Yellow
+}
 
 function speedtest {
     if (Get-Command speedtest.exe -ErrorAction SilentlyContinue) {
@@ -500,6 +538,21 @@ function port {
     Select-Object LocalPort, OwningProcess, @{N='Process';E={(Get-Process -Id $_.OwningProcess).ProcessName}}
 }
 
+function kport {
+    param($p)
+    $connections = Get-NetTCPConnection -LocalPort $p -ErrorAction SilentlyContinue
+    if (-not $connections) {
+        Write-Host "No process found on port $p" -ForegroundColor Yellow
+        return
+    }
+    $connections | ForEach-Object {
+        $proc = Get-Process -Id $_.OwningProcess -ErrorAction SilentlyContinue
+        Write-Host "Killing $($proc.ProcessName) (PID: $($_.OwningProcess)) on port $p" -ForegroundColor Red
+        Stop-Process -Id $_.OwningProcess -Force
+    }
+    Write-Host "Port $p freed." -ForegroundColor Green
+}
+
 function topmem {
     Get-Process | Sort-Object WorkingSet64 -Descending |
     Select-Object -First 10 Name, @{N='Mem(MB)';E={[math]::Round($_.WorkingSet64/1MB,1)}}
@@ -510,6 +563,60 @@ function icons {
         Import-Module Terminal-Icons -ErrorAction SilentlyContinue
     }
     Get-ChildItem | Format-Wide
+}
+
+function get {
+    param([Parameter(Mandatory)][string]$url)
+    Invoke-RestMethod -Uri $url -Method GET | ConvertTo-Json -Depth 10
+}
+
+function post {
+    param([Parameter(Mandatory)][string]$url, [string]$body = '{}')
+    Invoke-RestMethod -Uri $url -Method POST -Body $body -ContentType 'application/json' | ConvertTo-Json -Depth 10
+}
+
+function pathadd {
+    param([Parameter(Mandatory)][string]$dir)
+    $resolved = (Resolve-Path $dir -ErrorAction SilentlyContinue).Path
+    if (-not $resolved) { Write-Host "Directory not found: $dir" -ForegroundColor Red; return }
+    if ($env:PATH -split ';' -contains $resolved) { Write-Host "Already in PATH: $resolved" -ForegroundColor Yellow; return }
+    $env:PATH = "$resolved;$env:PATH"
+    Write-Host "Added to PATH: $resolved" -ForegroundColor Green
+}
+
+function pathremove {
+    param([Parameter(Mandatory)][string]$dir)
+    $resolved = (Resolve-Path $dir -ErrorAction SilentlyContinue).Path
+    if (-not $resolved) { $resolved = $dir }
+    $paths = $env:PATH -split ';' | Where-Object { $_ -ne $resolved }
+    $env:PATH = $paths -join ';'
+    Write-Host "Removed from PATH: $resolved" -ForegroundColor Green
+}
+
+function epoch { [int][double]::Parse((Get-Date (Get-Date).ToUniversalTime() -UFormat %s)) }
+
+function fromepoch {
+    param([Parameter(Mandatory)][long]$ts)
+    [DateTimeOffset]::FromUnixTimeSeconds($ts).LocalDateTime
+}
+
+function dsize {
+    param($path = '.')
+    $resolved = (Resolve-Path $path).Path
+    $size = (Get-ChildItem $resolved -Recurse -Force -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum
+    if ($size -ge 1GB) { "{0:N2} GB" -f ($size / 1GB) }
+    elseif ($size -ge 1MB) { "{0:N2} MB" -f ($size / 1MB) }
+    elseif ($size -ge 1KB) { "{0:N2} KB" -f ($size / 1KB) }
+    else { "$size B" }
+}
+
+function envs {
+    param($filter)
+    if ($filter) {
+        Get-ChildItem Env: | Where-Object { $_.Name -match $filter -or $_.Value -match $filter } | Format-Table Name, Value -AutoSize
+    } else {
+        Get-ChildItem Env: | Sort-Object Name | Format-Table Name, Value -AutoSize
+    }
 }
 
 function Set-PSReadLineOptionsCompat {
@@ -639,6 +746,19 @@ $($PSStyle.Foreground.Green)gs$($PSStyle.Reset) - Shortcut for 'git status'.
 $($PSStyle.Foreground.Green)gss$($PSStyle.Reset) - Shortcut for 'git stash'.
 $($PSStyle.Foreground.Green)gsp$($PSStyle.Reset) - Shortcut for 'git stash pop'.
 $($PSStyle.Foreground.Green)lazyg$($PSStyle.Reset) <message> - Add all, commit, and push in one command.
+$($PSStyle.Foreground.Green)gpr$($PSStyle.Reset) - Push current branch and create a pull request (via gh).
+$($PSStyle.Foreground.Green)gclean$($PSStyle.Reset) - Delete local branches already merged into main.
+$($PSStyle.Foreground.Green)gwip$($PSStyle.Reset) - Quick 'work in progress' commit.
+
+$($PSStyle.Foreground.Cyan)Docker$($PSStyle.Reset)
+$($PSStyle.Foreground.Yellow)=======================$($PSStyle.Reset)
+$($PSStyle.Foreground.Green)dps$($PSStyle.Reset) - Lists running containers.
+$($PSStyle.Foreground.Green)dpa$($PSStyle.Reset) - Lists all containers.
+$($PSStyle.Foreground.Green)dcu$($PSStyle.Reset) - Docker compose up.
+$($PSStyle.Foreground.Green)dcd$($PSStyle.Reset) - Docker compose down.
+$($PSStyle.Foreground.Green)dcb$($PSStyle.Reset) - Docker compose build.
+$($PSStyle.Foreground.Green)dlogs$($PSStyle.Reset) <container> - Follow container logs.
+$($PSStyle.Foreground.Green)dprune$($PSStyle.Reset) - Remove all unused Docker resources.
 
 $($PSStyle.Foreground.Cyan)File Operations$($PSStyle.Reset)
 $($PSStyle.Foreground.Yellow)=======================$($PSStyle.Reset)
@@ -675,6 +795,7 @@ $($PSStyle.Foreground.Green)pkill$($PSStyle.Reset) <name> - Kills processes by n
 $($PSStyle.Foreground.Green)k9$($PSStyle.Reset) <name> - Kills a process by name.
 $($PSStyle.Foreground.Green)topmem$($PSStyle.Reset) - Shows top 10 processes by memory usage.
 $($PSStyle.Foreground.Green)port$($PSStyle.Reset) <port> - Shows what process is using a specific port.
+$($PSStyle.Foreground.Green)kport$($PSStyle.Reset) <port> - Kills the process using a specific port.
 $($PSStyle.Foreground.Green)admin$($PSStyle.Reset) [command] - Opens elevated PowerShell or runs command elevated.
 $($PSStyle.Foreground.Green)su$($PSStyle.Reset) - Alias for admin.
 
@@ -684,6 +805,8 @@ $($PSStyle.Foreground.Green)pubip$($PSStyle.Reset) - Retrieves the public IP add
 $($PSStyle.Foreground.Green)localip$($PSStyle.Reset) - Retrieves local IP address(es).
 $($PSStyle.Foreground.Green)flushdns$($PSStyle.Reset) - Clears the DNS cache.
 $($PSStyle.Foreground.Green)speedtest$($PSStyle.Reset) - Run internet speed test (auto-installs Ookla CLI).
+$($PSStyle.Foreground.Green)get$($PSStyle.Reset) <url> - GET request and display JSON response.
+$($PSStyle.Foreground.Green)post$($PSStyle.Reset) <url> [body] - POST JSON request and display response.
 
 $($PSStyle.Foreground.Cyan)Utilities$($PSStyle.Reset)
 $($PSStyle.Foreground.Yellow)=======================$($PSStyle.Reset)
@@ -697,6 +820,12 @@ $($PSStyle.Foreground.Green)icons$($PSStyle.Reset) - List files with Terminal-Ic
 $($PSStyle.Foreground.Green)Clear-Cache$($PSStyle.Reset) - Clears Windows temp and cache files.
 $($PSStyle.Foreground.Green)winutil$($PSStyle.Reset) - Runs WinUtil full-release.
 $($PSStyle.Foreground.Green)winutildev$($PSStyle.Reset) - Runs WinUtil dev-release.
+$($PSStyle.Foreground.Green)pathadd$($PSStyle.Reset) <dir> - Add directory to PATH for current session.
+$($PSStyle.Foreground.Green)pathremove$($PSStyle.Reset) <dir> - Remove directory from PATH for current session.
+$($PSStyle.Foreground.Green)epoch$($PSStyle.Reset) - Current Unix timestamp.
+$($PSStyle.Foreground.Green)fromepoch$($PSStyle.Reset) <timestamp> - Convert Unix timestamp to local date.
+$($PSStyle.Foreground.Green)dsize$($PSStyle.Reset) [path] - Show directory size (default: current).
+$($PSStyle.Foreground.Green)envs$($PSStyle.Reset) [filter] - List/search environment variables.
 $($PSStyle.Foreground.Yellow)=======================$($PSStyle.Reset)
 
 Use '$($PSStyle.Foreground.Magenta)Show-Help$($PSStyle.Reset)' to display this help message.
