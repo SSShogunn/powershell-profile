@@ -98,6 +98,7 @@ This will remove:
 | `nf <name>` | Create new file |
 | `mkcd <dir>` | Create directory and cd into it |
 | `trash <path>` | Move to Recycle Bin |
+| `Clear-RecycleBin-Safe` | List and permanently delete all Recycle Bin items (with confirmation) |
 | `unzip <file>` | Extract zip to current directory |
 | `ff <name>` | Find files recursively |
 | `head <file> [n]` | Show first n lines (default: 10) |

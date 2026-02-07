@@ -339,6 +339,40 @@ function trash($path) {
     }
 }
 
+function Clear-RecycleBin-Safe {
+    $shell = New-Object -ComObject 'Shell.Application'
+    $recycleBin = $shell.NameSpace(0xA)
+    $items = $recycleBin.Items()
+
+    if ($items.Count -eq 0) {
+        Write-Host "Recycle Bin is empty." -ForegroundColor Green
+        return
+    }
+
+    Write-Host "Items in Recycle Bin ($($items.Count)):" -ForegroundColor Cyan
+    Write-Host ("-" * 60) -ForegroundColor DarkGray
+    foreach ($item in $items) {
+        $size = if ($item.Size -ge 1MB) {
+            "{0:N1} MB" -f ($item.Size / 1MB)
+        } elseif ($item.Size -ge 1KB) {
+            "{0:N1} KB" -f ($item.Size / 1KB)
+        } else {
+            "$($item.Size) B"
+        }
+        Write-Host "  $($item.Name)" -ForegroundColor Yellow -NoNewline
+        Write-Host " ($size)" -ForegroundColor DarkGray
+    }
+    Write-Host ("-" * 60) -ForegroundColor DarkGray
+
+    $confirm = Read-Host "Permanently delete all $($items.Count) item(s)? (y/N)"
+    if ($confirm -eq 'y' -or $confirm -eq 'Y') {
+        Clear-RecycleBin -Force
+        Write-Host "Recycle Bin cleared." -ForegroundColor Green
+    } else {
+        Write-Host "Cancelled." -ForegroundColor Gray
+    }
+}
+
 function docs {
     $docs = if(([Environment]::GetFolderPath("MyDocuments"))) {([Environment]::GetFolderPath("MyDocuments"))} else {$HOME + "\Documents"}
     Set-Location -Path $docs
@@ -503,6 +537,7 @@ $PSReadLineOptions = @{
     BellStyle = 'None'
 }
 Set-PSReadLineOptionsCompat -Options $PSReadLineOptions
+Set-PSReadLineOption -ExtraPromptLineCount 0
 
 Set-PSReadLineKeyHandler -Key UpArrow -Function HistorySearchBackward
 Set-PSReadLineKeyHandler -Key DownArrow -Function HistorySearchForward
@@ -603,6 +638,7 @@ $($PSStyle.Foreground.Green)touch$($PSStyle.Reset) <file> - Creates a new empty 
 $($PSStyle.Foreground.Green)nf$($PSStyle.Reset) <name> - Creates a new file with the specified name.
 $($PSStyle.Foreground.Green)mkcd$($PSStyle.Reset) <dir> - Creates and changes to a new directory.
 $($PSStyle.Foreground.Green)trash$($PSStyle.Reset) <path> - Moves file/folder to Recycle Bin.
+$($PSStyle.Foreground.Green)Clear-RecycleBin-Safe$($PSStyle.Reset) - Lists and permanently deletes all Recycle Bin items (with confirmation).
 $($PSStyle.Foreground.Green)unzip$($PSStyle.Reset) <file> - Extracts a zip file to the current directory.
 $($PSStyle.Foreground.Green)ff$($PSStyle.Reset) <name> - Finds files recursively with the specified name.
 $($PSStyle.Foreground.Green)head$($PSStyle.Reset) <path> [n] - Displays the first n lines of a file (default 10).
