@@ -1,7 +1,7 @@
 if ($repo_root_Override){
     $repo_root = $repo_root_Override
 } else {
-    $repo_root = "https://raw.githubusercontent.com/ChrisTitusTech"
+    $repo_root = "https://raw.githubusercontent.com/SSShogunn"
 }
 
 function Get-ProfileDir {
@@ -26,6 +26,14 @@ if ($updateInterval_Override){
     $updateInterval = $updateInterval_Override
 } else {
     $updateInterval = 7
+}
+
+$cachedProfilePath = "$(Get-ProfileDir)\CachedProfile.ps1"
+
+if (Test-Path $cachedProfilePath) {
+    Copy-Item -Path $cachedProfilePath -Destination $PROFILE -Force
+    Remove-Item $cachedProfilePath -Force -ErrorAction SilentlyContinue
+    Write-Host "Profile has been updated. Please restart your shell to reflect changes" -ForegroundColor Magenta
 }
 
 if ([bool]([System.Security.Principal.WindowsIdentity]::GetCurrent()).IsSystem) {
@@ -698,6 +706,34 @@ Use '$($PSStyle.Foreground.Magenta)Show-Help$($PSStyle.Reset)' to display this h
 
 if (Test-Path "$PSScriptRoot\CTTcustom.ps1") {
     Invoke-Expression -Command "& `"$PSScriptRoot\CTTcustom.ps1`""
+}
+
+if ($null -eq $lastExec -or ($lastExec.AddDays($updateInterval) -lt (Get-Date))) {
+    $_updateUrl = "$repo_root/powershell-profile/main/Microsoft.PowerShell_profile.ps1"
+    $_currentHash = (Get-FileHash $PROFILE -Algorithm SHA256).Hash
+    $_rs = [runspacefactory]::CreateRunspace()
+    $_rs.Open()
+    $_ps = [powershell]::Create()
+    $_ps.Runspace = $_rs
+    [void]$_ps.AddScript({
+        param($Url, $CachePath, $CurrentHash, $TimePath)
+        try {
+            $wc = [System.Net.WebClient]::new()
+            $content = $wc.DownloadString($Url)
+            $wc.Dispose()
+            $tmp = [System.IO.Path]::GetTempFileName()
+            [System.IO.File]::WriteAllText($tmp, $content)
+            $sha = [System.Security.Cryptography.SHA256]::Create()
+            $hash = [BitConverter]::ToString($sha.ComputeHash([System.IO.File]::ReadAllBytes($tmp))) -replace '-'
+            $sha.Dispose()
+            if ($hash -ne $CurrentHash) {
+                [System.IO.File]::Copy($tmp, $CachePath, $true)
+            }
+            [System.IO.File]::Delete($tmp)
+            [System.IO.File]::WriteAllText($TimePath, (Get-Date).ToString('yyyy-MM-dd'))
+        } catch { }
+    }).AddArgument($_updateUrl).AddArgument($cachedProfilePath).AddArgument($_currentHash).AddArgument($timeFilePath)
+    [void]$_ps.BeginInvoke()
 }
 
 Write-Host "$($PSStyle.Foreground.Yellow)Use 'Show-Help' to display help$($PSStyle.Reset)"

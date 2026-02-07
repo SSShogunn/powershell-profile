@@ -201,7 +201,8 @@ function Clear-Cache_Override {
 
 This fork has been optimized for fast startup:
 
-- **Disabled by default**: GitHub connectivity check, Terminal-Icons auto-import, auto-updates
+- **Background auto-updates**: Checks for updates in a background thread (no startup delay), downloads to cache, and applies on next shell restart
+- **Disabled by default**: GitHub connectivity check, Terminal-Icons auto-import
 - **Lazy loading**: Terminal-Icons loaded on-demand via `icons` command
 - **Zoxide**: Only initialized if already installed (no auto-install)
 
@@ -215,6 +216,23 @@ Import-Module Terminal-Icons
 
 # Re-enable Chocolatey profile
 Import-Module "$env:ChocolateyInstall\helpers\chocolateyProfile.psm1"
+```
+
+## Auto-Update
+
+The profile automatically checks for updates in the background with zero impact on startup time:
+
+1. **On startup**: If a cached update exists from a previous session, it's applied to `$PROFILE` and you'll see a message to restart
+2. **In background**: A lightweight thread checks the remote repository for changes (respects `$updateInterval`, default 7 days)
+3. **On next restart**: The updated profile is loaded
+
+No internet? No problem — the check silently fails without any errors or delays. You can still run `Update-Profile` for manual updates at any time.
+
+### Configure Update Interval
+
+```powershell
+# In your profile.ps1
+$updateInterval_Override = 14  # Check every 14 days instead of 7
 ```
 
 ## Requirements
