@@ -20,26 +20,20 @@
         {
           "foreground": "default",
           "options": {
+            "threshold": 500
+          },
+          "style": "plain",
+          "template": " {{ .FormattedMs }}",
+          "type": "executiontime"
+        },
+        {
+          "foreground": "default",
+          "options": {
             "always_enabled": true
           },
           "style": "plain",
           "template": " $ ",
           "type": "status"
-        }
-      ],
-      "type": "prompt"
-    },
-    {
-      "alignment": "right",
-      "segments": [
-        {
-          "foreground": "default",
-          "options": {
-            "threshold": 500
-          },
-          "style": "plain",
-          "template": "{{ .FormattedMs }}",
-          "type": "executiontime"
         }
       ],
       "type": "prompt"
