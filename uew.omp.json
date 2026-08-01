@@ -14,7 +14,7 @@
             "style": "agnoster_full"
           },
           "style": "plain",
-          "template": "[{{ url .Path (print \"file:///\" (replace \"\\\\\" \"/\" .PWD)) }}]",
+          "template": "[{{ .Path }}]",
           "type": "path"
         },
         {
