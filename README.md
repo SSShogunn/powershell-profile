@@ -198,26 +198,51 @@ This will remove:
 
 Create a `profile.ps1` file in the same directory using `Edit-Profile` to add custom configurations without modifying the main profile.
 
+You can also place a `CTTcustom.ps1` file beside `Microsoft.PowerShell_profile.ps1`. It is loaded before the profile reads override variables and functions, so it's a good place to define the overrides below.
+
 ### Override Variables
 
 ```powershell
-# In your profile.ps1
-$EDITOR_Override = 'nvim'           # Your preferred editor
+# In your profile.ps1 (or CTTcustom.ps1)
+$EDITOR_Override = 'nvim'            # Your preferred editor
 $repo_root_Override = "https://..."  # Point to your fork
 $updateInterval_Override = 14        # Days between update checks
+$debug_Override = $false             # Enable/disable debug banner
+$show_help_Override = $false         # Show Show-Help output on launch
+$timeFilePath_Override = "..."       # Path to the last-update-check tracking file
 ```
 
 ### Override Functions
 
-Add `_Override` suffix to override built-in functions:
+Add `_Override` suffix to override built-in functions. Avoid calling the original function from its override, otherwise the override will recurse.
 
 ```powershell
 function Update-Profile_Override {
     # Your custom update logic
 }
 
+function Update-PowerShell_Override {
+    # Your custom PowerShell update logic
+}
+
 function Clear-Cache_Override {
     # Your custom cache clearing logic
+}
+
+function Debug-Message_Override {
+    # Your custom debug banner
+}
+
+function Get-Theme_Override {
+    # Your custom prompt/theme initialization
+}
+
+function WinUtilDev_Override {
+    # Your custom winutildev behavior
+}
+
+function Set-PredictionSource_Override {
+    # Your custom PSReadLine prediction source setup
 }
 ```
 

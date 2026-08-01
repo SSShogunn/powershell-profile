@@ -1,257 +1,469 @@
-if ($repo_root_Override){
-    $repo_root = $repo_root_Override
-} else {
-    $repo_root = "https://raw.githubusercontent.com/SSShogunn"
-}
+### SSShogunn's PowerShell profile (fork of Chris Titus Tech's PowerShell profile)
 
-function Get-ProfileDir {
-    if ($PSVersionTable.PSEdition -eq "Core") {
-        return [Environment]::GetFolderPath("MyDocuments") + "\PowerShell"
-    } elseif ($PSVersionTable.PSEdition -eq "Desktop") {
-        return [Environment]::GetFolderPath("MyDocuments") + "\WindowsPowerShell"
-    } else {
-        Write-Error "Unsupported PowerShell edition: $($PSVersionTable.PSEdition)"
-        return $null
+function Enable-Tls12 {
+    try {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+    } catch {
+        Write-Verbose "Unable to enable TLS 1.2 explicitly: $_"
     }
 }
 
-if ($timeFilePath_Override){
-    $timeFilePath = $timeFilePath_Override
-} else {
-    $profileDir = Get-ProfileDir
-    $timeFilePath = "$profileDir\LastExecutionTime.txt"
+Enable-Tls12
+
+$script:ProfileRoot = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Path $PROFILE.CurrentUserCurrentHost -Parent }
+$script:CustomProfile = Join-Path -Path $script:ProfileRoot -ChildPath 'CTTcustom.ps1'
+
+if (Test-Path -Path $script:CustomProfile -PathType Leaf) {
+    . $script:CustomProfile
 }
 
-if ($updateInterval_Override){
-    $updateInterval = $updateInterval_Override
-} else {
-    $updateInterval = 7
+function Test-InteractiveShell {
+    try {
+        return $Host.Name -eq 'ConsoleHost' -and
+            -not [Console]::IsInputRedirected -and
+            -not [Console]::IsOutputRedirected
+    } catch {
+        return $false
+    }
 }
 
-$cachedProfilePath = "$(Get-ProfileDir)\CachedProfile.ps1"
-
-if (Test-Path $cachedProfilePath) {
-    Copy-Item -Path $cachedProfilePath -Destination $PROFILE -Force
-    Remove-Item $cachedProfilePath -Force -ErrorAction SilentlyContinue
-    Write-Host "Profile has been updated. Please restart your shell to reflect changes" -ForegroundColor Magenta
+function Get-ProfileDir {
+    switch ($PSVersionTable.PSEdition) {
+        'Core' { Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'PowerShell'; break }
+        'Desktop' { Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'WindowsPowerShell'; break }
+        default {
+            throw "Unsupported PowerShell edition: $($PSVersionTable.PSEdition)"
+        }
+    }
 }
+
+function Test-Command {
+    param([Parameter(Mandatory)][string]$Name)
+    $null -ne (Get-Command -Name $Name -ErrorAction SilentlyContinue)
+}
+
+function Save-UriToFile {
+    param(
+        [Parameter(Mandatory)][string]$Uri,
+        [Parameter(Mandatory)][string]$OutFile
+    )
+
+    $client = New-Object System.Net.WebClient
+    try {
+        $client.DownloadFile($Uri, $OutFile)
+    } finally {
+        $client.Dispose()
+    }
+}
+
+function Get-UriContent {
+    param([Parameter(Mandatory)][string]$Uri)
+
+    $client = New-Object System.Net.WebClient
+    try {
+        $client.DownloadString($Uri)
+    } finally {
+        $client.Dispose()
+    }
+}
+
+$isInteractiveShell = Test-InteractiveShell
+$debug = if ($null -ne $debug_Override) { [bool]$debug_Override } else { $false }
+$repo_root = if ($repo_root_Override) { $repo_root_Override } else { 'https://raw.githubusercontent.com/SSShogunn' }
+$profileDir = Get-ProfileDir
+$timeFilePath = if ($timeFilePath_Override) { $timeFilePath_Override } else { Join-Path $profileDir 'LastExecutionTime.txt' }
+$updateInterval = if ($null -ne $updateInterval_Override) { [int]$updateInterval_Override } else { 7 }
+$showHelpOnLaunch = if ($null -ne $show_help_Override) { [bool]$show_help_Override } else { $false }
+$cachedProfilePath = Join-Path $profileDir 'CachedProfile.ps1'
 
 if ([bool]([System.Security.Principal.WindowsIdentity]::GetCurrent()).IsSystem) {
     [System.Environment]::SetEnvironmentVariable('POWERSHELL_TELEMETRY_OPTOUT', 'true', [System.EnvironmentVariableTarget]::Machine)
 }
 
-$global:canConnectToGitHub = $true
-
-$lastExecRaw = if (Test-Path $timeFilePath) { (Get-Content -Path $timeFilePath -Raw).Trim() } else { $null }
-[Nullable[datetime]]$lastExec = $null
-if (-not [string]::IsNullOrWhiteSpace($lastExecRaw)) {
-    [datetime]$parsed = [datetime]::MinValue
-    if ([datetime]::TryParseExact($lastExecRaw, 'yyyy-MM-dd', $null, [System.Globalization.DateTimeStyles]::None, [ref]$parsed)) {
-        $lastExec = $parsed
+# If a background update finished downloading a newer profile since the last session, apply it now.
+if (Test-Path -Path $cachedProfilePath -PathType Leaf) {
+    Copy-Item -Path $cachedProfilePath -Destination $PROFILE.CurrentUserCurrentHost -Force
+    Remove-Item -Path $cachedProfilePath -Force -ErrorAction SilentlyContinue
+    if ($isInteractiveShell) {
+        Write-Host 'Profile has been updated. Please restart your shell to reflect changes.' -ForegroundColor Magenta
     }
+}
+
+function Debug-Message {
+    if (Get-Command -Name 'Debug-Message_Override' -ErrorAction SilentlyContinue) {
+        Debug-Message_Override
+        return
+    }
+
+    Write-Host '#######################################' -ForegroundColor Red
+    Write-Host '#           Debug mode enabled        #' -ForegroundColor Red
+    Write-Host '#          ONLY FOR DEVELOPMENT       #' -ForegroundColor Red
+    Write-Host '#       Run Update-Profile to reset   #' -ForegroundColor Red
+    Write-Host '#######################################' -ForegroundColor Red
+}
+
+if ($debug) {
+    Debug-Message
+}
+
+function Test-ProfileUpdateDue {
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][int]$IntervalDays
+    )
+
+    if ($IntervalDays -lt 0 -or -not (Test-Path -Path $Path -PathType Leaf)) {
+        return $true
+    }
+
+    $rawDate = (Get-Content -Path $Path -Raw -ErrorAction SilentlyContinue).Trim()
+    if ([string]::IsNullOrWhiteSpace($rawDate)) {
+        return $true
+    }
+
+    $lastRun = [datetime]::MinValue
+    if (-not [datetime]::TryParseExact(
+            $rawDate,
+            'yyyy-MM-dd',
+            [Globalization.CultureInfo]::InvariantCulture,
+            [Globalization.DateTimeStyles]::None,
+            [ref]$lastRun
+        )) {
+        return $true
+    }
+
+    return ((Get-Date).Date - $lastRun.Date).TotalDays -ge $IntervalDays
+}
+
+function Test-ProfileIsSymlink {
+    $profileItem = Get-Item -LiteralPath $PROFILE.CurrentUserCurrentHost -Force -ErrorAction SilentlyContinue
+    return $profileItem -and $profileItem.LinkType -eq 'SymbolicLink'
 }
 
 function Uninstall-Profile {
-    Write-Host "This will remove the PowerShell profile configuration." -ForegroundColor Yellow
-    Write-Host "Note: Installed packages (zoxide, speedtest, etc.) will NOT be uninstalled." -ForegroundColor Cyan
-    $confirm = Read-Host "Are you sure you want to uninstall? (y/N)"
-    if ($confirm -eq 'y' -or $confirm -eq 'Y') {
-        $profilePath = $PROFILE
-        $profileDir = Split-Path $profilePath
-        $timeFile = Join-Path $profileDir "LastExecutionTime.txt"
-
-        if (Test-Path $profilePath) {
-            Remove-Item $profilePath -Force
-            Write-Host "Removed: $profilePath" -ForegroundColor Green
-        }
-
-        if (Test-Path $timeFile) {
-            Remove-Item $timeFile -Force
-            Write-Host "Removed: $timeFile" -ForegroundColor Green
-        }
-
-        Write-Host "`nProfile uninstalled successfully!" -ForegroundColor Green
-        Write-Host "`nTo uninstall related packages manually, run:" -ForegroundColor Yellow
-        Write-Host "  winget uninstall ajeetdsouza.zoxide" -ForegroundColor Gray
-        Write-Host "  winget uninstall Ookla.Speedtest.CLI" -ForegroundColor Gray
-        Write-Host "`nRestart your terminal to complete the uninstallation." -ForegroundColor Cyan
-    } else {
-        Write-Host "Uninstall cancelled." -ForegroundColor Gray
+    Write-Host 'This will remove the PowerShell profile configuration.' -ForegroundColor Yellow
+    Write-Host 'Note: Installed packages (zoxide, speedtest, etc.) will NOT be uninstalled.' -ForegroundColor Cyan
+    $confirm = Read-Host 'Are you sure you want to uninstall? (y/N)'
+    if ($confirm -ne 'y' -and $confirm -ne 'Y') {
+        Write-Host 'Uninstall cancelled.' -ForegroundColor Gray
+        return
     }
+
+    $profilePath = $PROFILE.CurrentUserCurrentHost
+    foreach ($path in @($profilePath, $timeFilePath, $cachedProfilePath)) {
+        if (Test-Path -Path $path) {
+            Remove-Item -Path $path -Force
+            Write-Host "Removed: $path" -ForegroundColor Green
+        }
+    }
+
+    Write-Host "`nProfile uninstalled successfully!" -ForegroundColor Green
+    Write-Host "`nTo uninstall related packages manually, run:" -ForegroundColor Yellow
+    Write-Host '  winget uninstall ajeetdsouza.zoxide' -ForegroundColor Gray
+    Write-Host '  winget uninstall Ookla.Speedtest.CLI' -ForegroundColor Gray
+    Write-Host "`nRestart your terminal to complete the uninstallation." -ForegroundColor Cyan
 }
 
 function Update-Profile {
-    if (Get-Command -Name "Update-Profile_Override" -ErrorAction SilentlyContinue) {
-        Update-Profile_Override
-    } else {
-        try {
-            $url = "$repo_root/powershell-profile/main/Microsoft.PowerShell_profile.ps1"
-            $oldhash = Get-FileHash $PROFILE
-            Invoke-RestMethod $url -OutFile "$env:temp/Microsoft.PowerShell_profile.ps1"
-            $newhash = Get-FileHash "$env:temp/Microsoft.PowerShell_profile.ps1"
-            if ($newhash.Hash -ne $oldhash.Hash) {
-                Copy-Item -Path "$env:temp/Microsoft.PowerShell_profile.ps1" -Destination $PROFILE -Force
-                Write-Host "Profile has been updated. Please restart your shell to reflect changes" -ForegroundColor Magenta
-            } else {
-                Write-Host "Profile is up to date." -ForegroundColor Green
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param([switch]$Force)
+
+    if (Get-Command -Name 'Update-Profile_Override' -ErrorAction SilentlyContinue) {
+        Update-Profile_Override @PSBoundParameters
+        return $true
+    }
+
+    $url = "$repo_root/powershell-profile/main/Microsoft.PowerShell_profile.ps1"
+    $target = $PROFILE.CurrentUserCurrentHost
+    $tempFile = Join-Path $env:TEMP 'Microsoft.PowerShell_profile.ps1'
+
+    try {
+        Save-UriToFile -Uri $url -OutFile $tempFile
+
+        $targetExists = Test-Path -Path $target -PathType Leaf
+        $oldHash = if ($targetExists) { (Get-FileHash -Path $target).Hash } else { $null }
+        $newHash = (Get-FileHash -Path $tempFile).Hash
+
+        if (-not $Force -and $targetExists -and $oldHash -eq $newHash) {
+            if ($isInteractiveShell) {
+                Write-Host 'Profile is up to date.' -ForegroundColor Green
             }
-        } catch {
-            Write-Error "Unable to check for `$profile updates: $_"
-        } finally {
-            Remove-Item "$env:temp/Microsoft.PowerShell_profile.ps1" -ErrorAction SilentlyContinue
+            return $true
         }
+
+        if ($PSCmdlet.ShouldProcess($target, 'Update PowerShell profile')) {
+            $targetDir = Split-Path -Path $target -Parent
+            if (-not (Test-Path -Path $targetDir)) {
+                New-Item -Path $targetDir -ItemType Directory -Force | Out-Null
+            }
+
+            Copy-Item -Path $tempFile -Destination $target -Force
+            Write-Host 'Profile has been updated. Restart your shell to use the new version.' -ForegroundColor Magenta
+        }
+
+        return $true
+    } catch {
+        Write-Warning "Unable to check for profile updates: $_"
+        return $false
+    } finally {
+        Remove-Item -Path $tempFile -ErrorAction SilentlyContinue
     }
 }
 
-function Update-PowerShell {
-    if (Get-Command -Name "Update-PowerShell_Override" -ErrorAction SilentlyContinue) {
-        Update-PowerShell_Override
-    } else {
-        try {
-            Write-Host "Checking for PowerShell updates..." -ForegroundColor Cyan
-            $updateNeeded = $false
-            $currentVersion = $PSVersionTable.PSVersion.ToString()
-            $gitHubApiUrl = "https://api.github.com/repos/PowerShell/PowerShell/releases/latest"
-            $latestReleaseInfo = Invoke-RestMethod -Uri $gitHubApiUrl
-            $latestVersion = $latestReleaseInfo.tag_name.Trim('v')
-            if ($currentVersion -lt $latestVersion) {
-                $updateNeeded = $true
-            }
+function Start-BackgroundProfileUpdateCheck {
+    # Downloads and hashes the remote profile on a background runspace so startup is never
+    # blocked by a network call. If the remote profile changed, it is cached to disk and
+    # applied automatically the next time a shell starts (see the cache-apply block above).
+    $url = "$repo_root/powershell-profile/main/Microsoft.PowerShell_profile.ps1"
+    $target = $PROFILE.CurrentUserCurrentHost
+    $currentHash = if (Test-Path -Path $target -PathType Leaf) { (Get-FileHash -Path $target -Algorithm SHA256).Hash } else { $null }
 
-            if ($updateNeeded) {
-                Write-Host "Updating PowerShell..." -ForegroundColor Yellow
-                Start-Process powershell.exe -ArgumentList "-NoProfile -Command winget upgrade Microsoft.PowerShell --accept-source-agreements --accept-package-agreements" -Wait -NoNewWindow
-                Write-Host "PowerShell has been updated. Please restart your shell to reflect changes" -ForegroundColor Magenta
-            } else {
-                Write-Host "Your PowerShell is up to date." -ForegroundColor Green
+    $runspace = [runspacefactory]::CreateRunspace()
+    $runspace.Open()
+    $ps = [powershell]::Create()
+    $ps.Runspace = $runspace
+    [void]$ps.AddScript({
+        param($Url, $CachePath, $CurrentHash, $TimePath)
+        try {
+            $wc = [System.Net.WebClient]::new()
+            $content = $wc.DownloadString($Url)
+            $wc.Dispose()
+
+            $tempFile = [System.IO.Path]::GetTempFileName()
+            [System.IO.File]::WriteAllText($tempFile, $content)
+            $newHash = (Get-FileHash -Path $tempFile -Algorithm SHA256).Hash
+
+            if ($newHash -ne $CurrentHash) {
+                Copy-Item -Path $tempFile -Destination $CachePath -Force
             }
+            Remove-Item -Path $tempFile -Force -ErrorAction SilentlyContinue
+
+            $timeDir = Split-Path -Path $TimePath -Parent
+            if (-not (Test-Path -Path $timeDir)) {
+                New-Item -Path $timeDir -ItemType Directory -Force | Out-Null
+            }
+            Get-Date -Format 'yyyy-MM-dd' | Set-Content -Path $TimePath
         } catch {
-            Write-Error "Failed to update PowerShell. Error: $_"
+            # Silently ignore network/filesystem failures; the update will be retried next time it is due.
         }
+    }).AddArgument($url).AddArgument($cachedProfilePath).AddArgument($currentHash).AddArgument($timeFilePath) | Out-Null
+
+    [void]$ps.BeginInvoke()
+}
+
+function Invoke-ScheduledProfileUpdate {
+    if ($debug -or
+        -not $isInteractiveShell -or
+        (Test-ProfileIsSymlink) -or
+        -not (Test-ProfileUpdateDue -Path $timeFilePath -IntervalDays $updateInterval)) {
+        return
+    }
+
+    Start-BackgroundProfileUpdateCheck
+}
+
+function Update-PowerShell {
+    [CmdletBinding(SupportsShouldProcess)]
+    param()
+
+    if (Get-Command -Name 'Update-PowerShell_Override' -ErrorAction SilentlyContinue) {
+        Update-PowerShell_Override @PSBoundParameters
+        return
+    }
+
+    if (-not (Test-Command winget)) {
+        Write-Warning 'winget is required to update PowerShell automatically.'
+        return
+    }
+
+    try {
+        $release = Invoke-RestMethod -Uri 'https://api.github.com/repos/PowerShell/PowerShell/releases/latest' -ErrorAction Stop
+        $currentVersion = [version]$PSVersionTable.PSVersion
+        $latestVersion = [version]($release.tag_name -replace '^v', '')
+
+        if ($currentVersion -ge $latestVersion) {
+            Write-Host "PowerShell $currentVersion is up to date." -ForegroundColor Green
+            return
+        }
+
+        if ($PSCmdlet.ShouldProcess("PowerShell $currentVersion", "Upgrade to $latestVersion")) {
+            winget upgrade --id Microsoft.PowerShell --exact --accept-source-agreements --accept-package-agreements
+            if ($LASTEXITCODE -ne 0) {
+                Write-Error "winget failed to update PowerShell. Exit code: $LASTEXITCODE"
+                return
+            }
+            Write-Host 'PowerShell has been updated. Restart your shell to use the new version.' -ForegroundColor Magenta
+        }
+    } catch {
+        Write-Error "Failed to update PowerShell. Error: $_"
     }
 }
 
 function Clear-Cache {
-    if (Get-Command -Name "Clear-Cache_Override" -ErrorAction SilentlyContinue) {
-        Clear-Cache_Override
-    } else {
-        Write-Host "Clearing cache..." -ForegroundColor Cyan
+    [CmdletBinding(SupportsShouldProcess)]
+    param()
 
-        Write-Host "Clearing Windows Prefetch..." -ForegroundColor Yellow
-        Remove-Item -Path "$env:SystemRoot\Prefetch\*" -Force -ErrorAction SilentlyContinue
+    if (Get-Command -Name 'Clear-Cache_Override' -ErrorAction SilentlyContinue) {
+        Clear-Cache_Override @PSBoundParameters
+        return
+    }
 
-        Write-Host "Clearing Windows Temp..." -ForegroundColor Yellow
-        Remove-Item -Path "$env:SystemRoot\Temp\*" -Recurse -Force -ErrorAction SilentlyContinue
+    $paths = @(
+        "$env:SystemRoot\Prefetch\*",
+        "$env:SystemRoot\Temp\*",
+        "$env:TEMP\*",
+        "$env:LOCALAPPDATA\Microsoft\Windows\INetCache\*"
+    )
 
-        Write-Host "Clearing User Temp..." -ForegroundColor Yellow
-        Remove-Item -Path "$env:TEMP\*" -Recurse -Force -ErrorAction SilentlyContinue
-
-        Write-Host "Clearing Internet Explorer Cache..." -ForegroundColor Yellow
-        Remove-Item -Path "$env:LOCALAPPDATA\Microsoft\Windows\INetCache\*" -Recurse -Force -ErrorAction SilentlyContinue
-
-        Write-Host "Cache clearing completed." -ForegroundColor Green
+    foreach ($path in $paths) {
+        if ($PSCmdlet.ShouldProcess($path, 'Remove cached files')) {
+            Remove-Item -Path $path -Recurse -Force -ErrorAction SilentlyContinue
+        }
     }
 }
 
+function Initialize-OptionalModule {
+    if (-not $isInteractiveShell) {
+        return
+    }
+
+    if (Get-Module -ListAvailable -Name Terminal-Icons) {
+        Import-Module -Name Terminal-Icons -ErrorAction SilentlyContinue
+    } elseif ($isInteractiveShell) {
+        Write-Warning 'Terminal-Icons module is not installed. Run setup.ps1 to install dependencies.'
+    }
+
+    $chocolateyProfile = if ($env:ChocolateyInstall) {
+        Join-Path $env:ChocolateyInstall 'helpers\chocolateyProfile.psm1'
+    } else {
+        $null
+    }
+
+    if ($chocolateyProfile -and (Test-Path -Path $chocolateyProfile -PathType Leaf)) {
+        Import-Module $chocolateyProfile -ErrorAction SilentlyContinue
+    }
+}
+
+function Resolve-Editor {
+    if ($EDITOR_Override) {
+        return $EDITOR_Override
+    }
+
+    foreach ($candidate in 'nvim', 'pvim', 'vim', 'vi', 'code', 'codium', 'notepad++', 'sublime_text') {
+        if (Test-Command $candidate) {
+            return $candidate
+        }
+    }
+
+    return 'notepad'
+}
+
+Initialize-OptionalModule
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+$EDITOR = Resolve-Editor
+Set-Alias -Name vim -Value $EDITOR -Force
+
+if ($isInteractiveShell) {
+    try {
+        $adminSuffix = if ($isAdmin) { ' [ADMIN]' } else { '' }
+        $Host.UI.RawUI.WindowTitle = "PowerShell $($PSVersionTable.PSVersion)$adminSuffix"
+    } catch {
+        Write-Verbose "Unable to set console title: $_"
+    }
+}
+
 function prompt {
-    if ($isAdmin) { "[" + (Get-Location) + "] # " } else { "[" + (Get-Location) + "] $ " }
-}
-$adminSuffix = if ($isAdmin) { " [ADMIN]" } else { "" }
-$Host.UI.RawUI.WindowTitle = "PowerShell {0}$adminSuffix" -f $PSVersionTable.PSVersion.ToString()
-
-function Test-CommandExists {
-    param($command)
-    $exists = $null -ne (Get-Command $command -ErrorAction SilentlyContinue)
-    return $exists
+    $marker = if ($isAdmin) { '#' } else { '$' }
+    "[$(Get-Location)] $marker "
 }
 
-$EDITOR = if ($EDITOR_Override) { $EDITOR_Override } else { 'code' }
-Set-Alias -Name vim -Value $EDITOR
 function Edit-Profile {
-    vim $PROFILE.CurrentUserAllHosts
+    & $EDITOR $PROFILE.CurrentUserAllHosts
 }
-Set-Alias -Name ep -Value Edit-Profile
+Set-Alias -Name ep -Value Edit-Profile -Force
 
 function Invoke-Profile {
-    if ($PSVersionTable.PSEdition -eq "Desktop") {
-        Write-Host "Note: Some Oh My Posh/PSReadLine errors are expected in PowerShell 5. The profile still works fine." -ForegroundColor Yellow
-    }
-    & $PROFILE
+    . $PROFILE.CurrentUserCurrentHost
 }
 
-function touch($file) { "" | Out-File $file -Encoding ASCII }
-function ff($name) {
-    Get-ChildItem -recurse -filter "*${name}*" -ErrorAction SilentlyContinue | ForEach-Object {
-        Write-Output "$($_.FullName)"
+function reload { & $PROFILE }
+
+function touch {
+    param([Parameter(Mandatory)][string]$File)
+
+    if (Test-Path -Path $File) {
+        (Get-Item -Path $File).LastWriteTime = Get-Date
+    } else {
+        New-Item -Path $File -ItemType File -Force | Out-Null
     }
 }
 
-function pubip { (Invoke-WebRequest http://ifconfig.me/ip).Content }
+function mkcd {
+    param([Parameter(Mandatory)][string]$Path)
+    New-Item -Path $Path -ItemType Directory -Force | Out-Null
+    Set-Location -Path $Path
+}
+
+function ff {
+    param([Parameter(Mandatory)][string]$Name)
+    Get-ChildItem -Recurse -Filter "*$Name*" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName
+}
+
+function pubip {
+    (Get-UriContent -Uri 'https://ifconfig.me/ip').Trim()
+}
 
 function winutil {
-    Invoke-Expression (Invoke-RestMethod https://christitus.com/win)
+    & ([ScriptBlock]::Create((Invoke-RestMethod -Uri 'https://christitus.com/win'))) @args
 }
 
 function winutildev {
-    if (Get-Command -Name "WinUtilDev_Override" -ErrorAction SilentlyContinue) {
-        WinUtilDev_Override
-    } else {
-        Invoke-Expression (Invoke-RestMethod https://christitus.com/windev)
+    if (Get-Command -Name 'WinUtilDev_Override' -ErrorAction SilentlyContinue) {
+        WinUtilDev_Override @args
+        return
     }
+
+    & ([ScriptBlock]::Create((Invoke-RestMethod -Uri 'https://christitus.com/windev'))) @args
 }
 
 function admin {
-    if ($args.Count -gt 0) {
-        $argList = $args -join ' '
-        Start-Process wt -Verb runAs -ArgumentList "pwsh.exe -NoExit -Command $argList"
+    $cwd = (Get-Location).ProviderPath
+    $shell = if (Test-Command pwsh) { 'pwsh.exe' } else { 'powershell.exe' }
+    $shellArgs = if ($args.Count -gt 0) { @('-NoExit', '-Command', ($args -join ' ')) } else { @('-NoExit') }
+
+    if (Test-Command wt) {
+        Start-Process wt -Verb RunAs -ArgumentList (@('-d', $cwd, $shell) + $shellArgs)
     } else {
-        Start-Process wt -Verb runAs
+        Start-Process $shell -Verb RunAs -WorkingDirectory $cwd -ArgumentList $shellArgs
     }
 }
-
-Set-Alias -Name su -Value admin
+Set-Alias -Name su -Value admin -Force
 
 function uptime {
-    try {
-        $dateFormat = [System.Globalization.CultureInfo]::CurrentCulture.DateTimeFormat.ShortDatePattern
-        $timeFormat = [System.Globalization.CultureInfo]::CurrentCulture.DateTimeFormat.LongTimePattern
-
-        if ($PSVersionTable.PSVersion.Major -eq 5) {
-            $lastBoot = (Get-WmiObject win32_operatingsystem).LastBootUpTime
-            $bootTime = [System.Management.ManagementDateTimeConverter]::ToDateTime($lastBoot)
-
-            $lastBoot = $bootTime.ToString("$dateFormat $timeFormat")
-        } else {
-            $lastBoot = (Get-Uptime -Since).ToString("$dateFormat $timeFormat")
-            $bootTime = [System.DateTime]::ParseExact($lastBoot, "$dateFormat $timeFormat", [System.Globalization.CultureInfo]::InvariantCulture)
-        }
-
-        $formattedBootTime = $bootTime.ToString("dddd, MMMM dd, yyyy HH:mm:ss", [System.Globalization.CultureInfo]::InvariantCulture) + " [$lastBoot]"
-        Write-Host "System started on: $formattedBootTime" -ForegroundColor DarkGray
-
-        $uptime = (Get-Date) - $bootTime
-
-        $days = $uptime.Days
-        $hours = $uptime.Hours
-        $minutes = $uptime.Minutes
-        $seconds = $uptime.Seconds
-
-        Write-Host ("Uptime: {0} days, {1} hours, {2} minutes, {3} seconds" -f $days, $hours, $minutes, $seconds) -ForegroundColor Blue
-
-    } catch {
-        Write-Error "An error occurred while retrieving system uptime."
+    $boot = if (Get-Command Get-Uptime -ErrorAction SilentlyContinue) {
+        Get-Uptime -Since
+    } else {
+        (Get-CimInstance -ClassName Win32_OperatingSystem).LastBootUpTime
     }
+
+    (Get-Date) - $boot | Select-Object Days, Hours, Minutes, Seconds
 }
 
-function unzip ($file) {
-    Write-Output("Extracting", $file, "to", $pwd)
-    $fullFile = Get-ChildItem -Path $pwd -Filter $file | ForEach-Object { $_.FullName }
-    Expand-Archive -Path $fullFile -DestinationPath $pwd
+function unzip {
+    param([Parameter(Mandatory)][string]$File)
+
+    if (-not (Test-Path -Path $File -PathType Leaf)) {
+        Write-Error "File not found: $File"
+        return
+    }
+
+    Expand-Archive -Path $File -DestinationPath (Get-Location) -Force
 }
+
 function hb {
     if ($args.Length -eq 0) {
-        Write-Error "No file path specified."
+        Write-Error 'No file path specified.'
         return
     }
 
@@ -260,11 +472,11 @@ function hb {
     if (Test-Path $FilePath) {
         $Content = Get-Content $FilePath -Raw
     } else {
-        Write-Error "File path does not exist."
+        Write-Error 'File path does not exist.'
         return
     }
 
-    $uri = "http://bin.christitus.com/documents"
+    $uri = 'http://bin.christitus.com/documents'
     try {
         $response = Invoke-RestMethod -Uri $uri -Method Post -Body $Content -ErrorAction Stop
         $hasteKey = $response.key
@@ -275,75 +487,116 @@ function hb {
         Write-Error "Failed to upload the document. Error: $_"
     }
 }
-function grep($regex, $dir) {
-    if ( $dir ) {
-        Get-ChildItem $dir | select-string $regex
-        return
+
+function grep {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory, Position = 0)][string]$Pattern,
+        [Parameter(Position = 1)][string]$Path,
+        [Parameter(ValueFromPipeline)][object]$InputObject
+    )
+
+    begin {
+        $pipelineInput = [System.Collections.Generic.List[object]]::new()
     }
-    $input | select-string $regex
+
+    process {
+        if ($PSBoundParameters.ContainsKey('InputObject')) {
+            $pipelineInput.Add($InputObject)
+        }
+    }
+
+    end {
+        if ($Path) {
+            Get-ChildItem -Path $Path -Recurse -File -ErrorAction SilentlyContinue | Select-String -Pattern $Pattern
+        } elseif ($pipelineInput.Count -gt 0) {
+            $pipelineInput | Select-String -Pattern $Pattern
+        } else {
+            Write-Error 'Usage: grep <pattern> [path] or pipe input to grep'
+        }
+    }
 }
 
-function df {
-    get-volume
+function df { Get-Volume }
+
+function sed {
+    param(
+        [Parameter(Mandatory)][string]$File,
+        [Parameter(Mandatory)][string]$Find,
+        [Parameter(Mandatory)][string]$Replace
+    )
+
+    (Get-Content -Path $File).Replace($Find, $Replace) | Set-Content -Path $File
 }
 
-function sed($file, $find, $replace) {
-    (Get-Content $file).replace("$find", $replace) | Set-Content $file
+function which {
+    param([Parameter(Mandatory)][string]$Name)
+    Get-Command -Name $Name | Select-Object -ExpandProperty Definition
 }
 
-function which($name) {
-    Get-Command $name | Select-Object -ExpandProperty Definition
+function export {
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][string]$Value
+    )
+    Set-Item -Path "env:$Name" -Value $Value -Force
 }
 
-function export($name, $value) {
-    set-item -force -path "env:$name" -value $value;
+function pkill {
+    param([Parameter(Mandatory)][string]$Name)
+    Get-Process -Name $Name -ErrorAction SilentlyContinue | Stop-Process -Force
 }
 
-function pkill($name) {
-    Get-Process $name -ErrorAction SilentlyContinue | Stop-Process
-}
-
-function pgrep($name) {
-    Get-Process $name
+function pgrep {
+    param([Parameter(Mandatory)][string]$Name)
+    Get-Process -Name $Name -ErrorAction SilentlyContinue
 }
 
 function head {
-    param($Path, $n = 10)
-    Get-Content $Path -Head $n
+    param([Parameter(Mandatory)][string]$Path, [int]$n = 10)
+    Get-Content -Path $Path -Head $n
 }
 
 function tail {
-    param($Path, $n = 10, [switch]$f = $false)
-    Get-Content $Path -Tail $n -Wait:$f
+    param([Parameter(Mandatory)][string]$Path, [int]$n = 10, [switch]$f)
+    Get-Content -Path $Path -Tail $n -Wait:$f
 }
 
-function nf { param($name) New-Item -ItemType "file" -Path . -Name $name }
+function nf {
+    param([Parameter(Mandatory)][string]$Name)
+    New-Item -ItemType File -Path . -Name $Name -Force | Out-Null
+}
 
-function mkcd { param($dir) mkdir $dir -Force; Set-Location $dir }
+function trash {
+    param([Parameter(Mandatory)][string]$Path)
 
-function trash($path) {
-    $fullPath = (Resolve-Path -Path $path).Path
+    $resolvedPath = Resolve-Path -LiteralPath $Path -ErrorAction SilentlyContinue
+    if (-not $resolvedPath) {
+        Write-Error "Item not found: $Path"
+        return
+    }
 
-    if (Test-Path $fullPath) {
-        $item = Get-Item $fullPath
-
-        if ($item.PSIsContainer) {
-            $parentPath = $item.Parent.FullName
-        } else {
-            $parentPath = $item.DirectoryName
-        }
-
-        $shell = New-Object -ComObject 'Shell.Application'
-        $shellItem = $shell.NameSpace($parentPath).ParseName($item.Name)
-
-        if ($item) {
-            $shellItem.InvokeVerb('delete')
-            Write-Host "Item '$fullPath' has been moved to the Recycle Bin."
-        } else {
-            Write-Host "Error: Could not find the item '$fullPath' to trash."
-        }
+    $fullPath = $resolvedPath.ProviderPath
+    $item = Get-Item -LiteralPath $fullPath
+    $parentPath = if ($item.PSIsContainer) {
+        if ($item.Parent) { $item.Parent.FullName } else { Split-Path -Path $item.FullName -Parent }
     } else {
-        Write-Host "Error: Item '$fullPath' does not exist."
+        $item.DirectoryName
+    }
+
+    if ([string]::IsNullOrWhiteSpace($parentPath)) {
+        Write-Error "Cannot move root path to Recycle Bin: $fullPath"
+        return
+    }
+
+    $shell = New-Object -ComObject 'Shell.Application'
+    $shellFolder = $shell.NameSpace($parentPath)
+    $shellItem = if ($shellFolder) { $shellFolder.ParseName($item.Name) } else { $null }
+
+    if ($shellItem) {
+        $shellItem.InvokeVerb('delete')
+    } else {
+        Write-Error "Could not move item to Recycle Bin: $fullPath"
     }
 }
 
@@ -353,95 +606,47 @@ function Clear-RecycleBin-Safe {
     $items = $recycleBin.Items()
 
     if ($items.Count -eq 0) {
-        Write-Host "Recycle Bin is empty." -ForegroundColor Green
+        Write-Host 'Recycle Bin is empty.' -ForegroundColor Green
         return
     }
 
     Write-Host "Items in Recycle Bin ($($items.Count)):" -ForegroundColor Cyan
-    Write-Host ("-" * 60) -ForegroundColor DarkGray
+    Write-Host ('-' * 60) -ForegroundColor DarkGray
     foreach ($item in $items) {
         $size = if ($item.Size -ge 1MB) {
-            "{0:N1} MB" -f ($item.Size / 1MB)
+            '{0:N1} MB' -f ($item.Size / 1MB)
         } elseif ($item.Size -ge 1KB) {
-            "{0:N1} KB" -f ($item.Size / 1KB)
+            '{0:N1} KB' -f ($item.Size / 1KB)
         } else {
             "$($item.Size) B"
         }
         Write-Host "  $($item.Name)" -ForegroundColor Yellow -NoNewline
         Write-Host " ($size)" -ForegroundColor DarkGray
     }
-    Write-Host ("-" * 60) -ForegroundColor DarkGray
+    Write-Host ('-' * 60) -ForegroundColor DarkGray
 
     $confirm = Read-Host "Permanently delete all $($items.Count) item(s)? (y/N)"
     if ($confirm -eq 'y' -or $confirm -eq 'Y') {
         Clear-RecycleBin -Force
-        Write-Host "Recycle Bin cleared." -ForegroundColor Green
+        Write-Host 'Recycle Bin cleared.' -ForegroundColor Green
     } else {
-        Write-Host "Cancelled." -ForegroundColor Gray
+        Write-Host 'Cancelled.' -ForegroundColor Gray
     }
 }
 
 function docs {
-    $docs = if(([Environment]::GetFolderPath("MyDocuments"))) {([Environment]::GetFolderPath("MyDocuments"))} else {$HOME + "\Documents"}
-    Set-Location -Path $docs
+    Set-Location -Path ([Environment]::GetFolderPath('MyDocuments'))
 }
 
 function dtop {
-    $dtop = if ([Environment]::GetFolderPath("Desktop")) {[Environment]::GetFolderPath("Desktop")} else {$HOME + "\Documents"}
-    Set-Location -Path $dtop
+    Set-Location -Path ([Environment]::GetFolderPath('Desktop'))
 }
 
-function k9 { Stop-Process -Name $args[0] }
+function dl { Set-Location ([Environment]::GetFolderPath('UserProfile') + '\Downloads') }
 
+function k9 { param([Parameter(Mandatory)][string]$Name) pkill $Name }
 function la { Get-ChildItem | Format-Table -AutoSize }
 function ll { Get-ChildItem -Force | Format-Table -AutoSize }
-
-function gs { git status }
-
-function ga { git add . }
-
-function gc { param($m) git commit -m "$m" }
-
-function gpush { git push }
-
-function gpull { git pull }
-
-function g { __zoxide_z github }
-
-function gcl { git clone "$args" }
-
-function gcom {
-    git add .
-    git commit -m "$args"
-}
-function lazyg {
-    git add .
-    git commit -m "$args"
-    git push
-}
-
-function sysinfo { Get-ComputerInfo }
-
-function dps { docker ps $args }
-function dpa { docker ps -a $args }
-function dcu { docker compose up $args }
-function dcd { docker compose down $args }
-function dcb { docker compose build $args }
-function dlogs { param($container) docker logs -f $container }
-function dprune {
-    Write-Host "Pruning Docker system..." -ForegroundColor Yellow
-    docker system prune -af --volumes
-    Write-Host "Docker prune complete." -ForegroundColor Green
-}
-
-function flushdns {
-    Clear-DnsClientCache
-    Write-Host "DNS has been flushed"
-}
-
-function cpy { Set-Clipboard $args[0] }
-
-function pst { Get-Clipboard }
 
 function .. { Set-Location .. }
 function ... { Set-Location ..\.. }
@@ -449,18 +654,37 @@ function .... { Set-Location ..\..\.. }
 
 function open { param($path = '.') Start-Process explorer.exe -ArgumentList (Resolve-Path $path) }
 
-function dl { Set-Location ([Environment]::GetFolderPath("UserProfile") + "\Downloads") }
-
-function glog { git log --oneline --graph --decorate -20 }
-
+function gs { git status }
+function ga { git add . }
+function gc { git commit -m ($args -join ' ') }
+function gpush { git push @args }
+function gpull { git pull @args }
+function gcl { git clone @args }
 function gd { git diff $args }
-
 function gb { git branch $args }
-
 function gco { param($branch) git checkout $branch }
-
 function gss { git stash }
 function gsp { git stash pop }
+function glog { git log --oneline --graph --decorate -20 }
+
+function g {
+    if (Get-Command __zoxide_z -ErrorAction SilentlyContinue) {
+        __zoxide_z github
+    } elseif (Test-Path -Path "$HOME\github") {
+        Set-Location "$HOME\github"
+    }
+}
+
+function gcom {
+    git add .
+    git commit -m ($args -join ' ')
+}
+
+function lazyg {
+    git add .
+    git commit -m ($args -join ' ')
+    git push
+}
 
 function gpr {
     $branch = git rev-parse --abbrev-ref HEAD
@@ -468,7 +692,7 @@ function gpr {
     if (Get-Command gh -ErrorAction SilentlyContinue) {
         gh pr create --fill
     } else {
-        Write-Host "gh CLI not found. Install: winget install GitHub.cli" -ForegroundColor Yellow
+        Write-Host 'gh CLI not found. Install: winget install GitHub.cli' -ForegroundColor Yellow
     }
 }
 
@@ -484,20 +708,42 @@ function gclean {
 
 function gwip {
     git add .
-    git commit -m "wip: work in progress [skip ci]"
-    Write-Host "WIP commit created." -ForegroundColor Yellow
+    git commit -m 'wip: work in progress [skip ci]'
+    Write-Host 'WIP commit created.' -ForegroundColor Yellow
 }
+
+function sysinfo { Get-ComputerInfo }
+
+function dps { docker ps $args }
+function dpa { docker ps -a $args }
+function dcu { docker compose up $args }
+function dcd { docker compose down $args }
+function dcb { docker compose build $args }
+function dlogs { param($container) docker logs -f $container }
+function dprune {
+    Write-Host 'Pruning Docker system...' -ForegroundColor Yellow
+    docker system prune -af --volumes
+    Write-Host 'Docker prune complete.' -ForegroundColor Green
+}
+
+function flushdns {
+    Clear-DnsClientCache
+    Write-Host 'DNS has been flushed'
+}
+
+function cpy { Set-Clipboard ($args -join ' ') }
+function pst { Get-Clipboard }
 
 function speedtest {
     if (Get-Command speedtest.exe -ErrorAction SilentlyContinue) {
         speedtest.exe $args
     } else {
-        Write-Host "Speedtest CLI not found. Installing via winget..." -ForegroundColor Yellow
+        Write-Host 'Speedtest CLI not found. Installing via winget...' -ForegroundColor Yellow
         winget install Ookla.Speedtest.CLI --accept-source-agreements --accept-package-agreements
         if ($LASTEXITCODE -eq 0) {
             Write-Host "Speedtest installed successfully. Run 'speedtest' again." -ForegroundColor Green
         } else {
-            Write-Host "Failed to install. Install manually: winget install Ookla.Speedtest.CLI" -ForegroundColor Red
+            Write-Host 'Failed to install. Install manually: winget install Ookla.Speedtest.CLI' -ForegroundColor Red
         }
     }
 }
@@ -505,8 +751,6 @@ function speedtest {
 function localip {
     (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.InterfaceAlias -notmatch 'Loopback' -and $_.IPAddress -notmatch '^169' }).IPAddress
 }
-
-function reload { & $PROFILE }
 
 function time {
     param([ScriptBlock]$Command)
@@ -529,13 +773,13 @@ function jsonclip {
 
 function cpwd {
     (Get-Location).Path | Set-Clipboard
-    Write-Host "Path copied to clipboard" -ForegroundColor Green
+    Write-Host 'Path copied to clipboard' -ForegroundColor Green
 }
 
 function port {
     param($p)
     Get-NetTCPConnection -LocalPort $p -ErrorAction SilentlyContinue |
-    Select-Object LocalPort, OwningProcess, @{N='Process';E={(Get-Process -Id $_.OwningProcess).ProcessName}}
+    Select-Object LocalPort, OwningProcess, @{N = 'Process'; E = { (Get-Process -Id $_.OwningProcess).ProcessName } }
 }
 
 function kport {
@@ -555,7 +799,7 @@ function kport {
 
 function topmem {
     Get-Process | Sort-Object WorkingSet64 -Descending |
-    Select-Object -First 10 Name, @{N='Mem(MB)';E={[math]::Round($_.WorkingSet64/1MB,1)}}
+    Select-Object -First 10 Name, @{N = 'Mem(MB)'; E = { [math]::Round($_.WorkingSet64 / 1MB, 1) } }
 }
 
 function icons {
@@ -604,9 +848,9 @@ function dsize {
     param($path = '.')
     $resolved = (Resolve-Path $path).Path
     $size = (Get-ChildItem $resolved -Recurse -Force -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum
-    if ($size -ge 1GB) { "{0:N2} GB" -f ($size / 1GB) }
-    elseif ($size -ge 1MB) { "{0:N2} MB" -f ($size / 1MB) }
-    elseif ($size -ge 1KB) { "{0:N2} KB" -f ($size / 1KB) }
+    if ($size -ge 1GB) { '{0:N2} GB' -f ($size / 1GB) }
+    elseif ($size -ge 1MB) { '{0:N2} MB' -f ($size / 1MB) }
+    elseif ($size -ge 1KB) { '{0:N2} KB' -f ($size / 1KB) }
     else { "$size B" }
 }
 
@@ -620,93 +864,157 @@ function envs {
 }
 
 function Set-PSReadLineOptionsCompat {
-    param([hashtable]$Options)
-    if ($PSVersionTable.PSEdition -eq "Core") {
-        Set-PSReadLineOption @Options
-    } else {
-        $SafeOptions = $Options.Clone()
-        $SafeOptions.Remove('PredictionSource')
-        $SafeOptions.Remove('PredictionViewStyle')
-        Set-PSReadLineOption @SafeOptions
+    [CmdletBinding(SupportsShouldProcess)]
+    param([Parameter(Mandatory)][hashtable]$Options)
+
+    $safeOptions = $Options.Clone()
+    if ($PSVersionTable.PSEdition -ne 'Core') {
+        $safeOptions.Remove('PredictionSource')
+        $safeOptions.Remove('PredictionViewStyle')
+    }
+
+    if ($PSCmdlet.ShouldProcess('PSReadLine', 'Set PSReadLine options')) {
+        Set-PSReadLineOption @safeOptions
     }
 }
 
-$PSReadLineOptions = @{
-    EditMode = 'Windows'
-    HistoryNoDuplicates = $true
-    HistorySearchCursorMovesToEnd = $true
-    Colors = @{
-        Command = '#87CEEB'
-        Parameter = '#98FB98'
-        Operator = '#FFB6C1'
-        Variable = '#DDA0DD'
-        String = '#FFDAB9'
-        Number = '#B0E0E6'
-        Type = '#F0E68C'
-        Comment = '#D3D3D3'
-        Keyword = '#8367c7'
-        Error = '#FF6347'
-    }
-    PredictionSource = 'History'
-    PredictionViewStyle = 'ListView'
-    BellStyle = 'None'
-}
-Set-PSReadLineOptionsCompat -Options $PSReadLineOptions
-Set-PSReadLineOption -ExtraPromptLineCount 0
+function Set-PredictionSource {
+    [CmdletBinding(SupportsShouldProcess)]
+    param()
 
-Set-PSReadLineKeyHandler -Key UpArrow -Function HistorySearchBackward
-Set-PSReadLineKeyHandler -Key DownArrow -Function HistorySearchForward
-Set-PSReadLineKeyHandler -Key Tab -Function MenuComplete
-Set-PSReadLineKeyHandler -Chord 'Ctrl+d' -Function DeleteChar
-Set-PSReadLineKeyHandler -Chord 'Ctrl+w' -Function BackwardDeleteWord
-Set-PSReadLineKeyHandler -Chord 'Alt+d' -Function DeleteWord
-Set-PSReadLineKeyHandler -Chord 'Ctrl+LeftArrow' -Function BackwardWord
-Set-PSReadLineKeyHandler -Chord 'Ctrl+RightArrow' -Function ForwardWord
-Set-PSReadLineKeyHandler -Chord 'Ctrl+z' -Function Undo
-Set-PSReadLineKeyHandler -Chord 'Ctrl+y' -Function Redo
-
-Set-PSReadLineOption -AddToHistoryHandler {
-    param($line)
-    $sensitive = @('password', 'secret', 'token', 'apikey', 'connectionstring')
-    $hasSensitive = $sensitive | Where-Object { $line -match $_ }
-    return ($null -eq $hasSensitive)
-}
-
-if ($PSVersionTable.PSEdition -eq "Core") {
-    Set-PSReadLineOption -PredictionSource HistoryAndPlugin
-    Set-PSReadLineOption -MaximumHistoryCount 10000
-} else {
-    Set-PSReadLineOption -MaximumHistoryCount 10000
-}
-
-$scriptblock = {
-    param($wordToComplete, $commandAst, $cursorPosition)
-    $customCompletions = @{
-        'git' = @('status', 'add', 'commit', 'push', 'pull', 'clone', 'checkout')
-        'npm' = @('install', 'start', 'run', 'test', 'build')
-        'deno' = @('run', 'compile', 'bundle', 'test', 'lint', 'fmt', 'cache', 'info', 'doc', 'upgrade')
+    if (Get-Command -Name 'Set-PredictionSource_Override' -ErrorAction SilentlyContinue) {
+        Set-PredictionSource_Override
+        return
     }
 
-    $command = $commandAst.CommandElements[0].Value
-    if ($customCompletions.ContainsKey($command)) {
-        $customCompletions[$command] | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
-            [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
+    if ($PSCmdlet.ShouldProcess('PSReadLine', 'Set prediction source')) {
+        if ($PSVersionTable.PSEdition -eq 'Core') {
+            Set-PSReadLineOption -PredictionSource HistoryAndPlugin
+        }
+
+        Set-PSReadLineOption -MaximumHistoryCount 10000
+    }
+}
+
+function Initialize-PSReadLine {
+    if (-not $isInteractiveShell -or -not (Get-Module -ListAvailable -Name PSReadLine)) {
+        return
+    }
+
+    $options = @{
+        EditMode                      = 'Windows'
+        HistoryNoDuplicates            = $true
+        HistorySearchCursorMovesToEnd = $true
+        PredictionSource               = 'History'
+        PredictionViewStyle            = 'ListView'
+        BellStyle                      = 'None'
+        Colors                         = @{
+            Command   = '#87CEEB'
+            Parameter = '#98FB98'
+            Operator  = '#FFB6C1'
+            Variable  = '#DDA0DD'
+            String    = '#FFDAB9'
+            Number    = '#B0E0E6'
+            Type      = '#F0E68C'
+            Comment   = '#D3D3D3'
+            Keyword   = '#8367c7'
+            Error     = '#FF6347'
+        }
+    }
+
+    Set-PSReadLineOptionsCompat -Options $options
+    Set-PSReadLineKeyHandler -Key UpArrow -Function HistorySearchBackward
+    Set-PSReadLineKeyHandler -Key DownArrow -Function HistorySearchForward
+    Set-PSReadLineKeyHandler -Key Tab -Function MenuComplete
+    Set-PSReadLineKeyHandler -Chord 'Ctrl+d' -Function DeleteChar
+    Set-PSReadLineKeyHandler -Chord 'Ctrl+w' -Function BackwardDeleteWord
+    Set-PSReadLineKeyHandler -Chord 'Alt+d' -Function DeleteWord
+    Set-PSReadLineKeyHandler -Chord 'Ctrl+LeftArrow' -Function BackwardWord
+    Set-PSReadLineKeyHandler -Chord 'Ctrl+RightArrow' -Function ForwardWord
+    Set-PSReadLineKeyHandler -Chord 'Ctrl+z' -Function Undo
+    Set-PSReadLineKeyHandler -Chord 'Ctrl+y' -Function Redo
+
+    Set-PSReadLineOption -AddToHistoryHandler {
+        param([string]$line)
+        $line -notmatch '(?i)(password|secret|token|apikey|connectionstring)'
+    }
+
+    Set-PredictionSource
+}
+
+function Register-CustomCompletion {
+    if (-not $isInteractiveShell) {
+        return
+    }
+
+    $completionMap = @{
+        git  = @('status', 'add', 'commit', 'push', 'pull', 'clone', 'checkout')
+        npm  = @('install', 'start', 'run', 'test', 'build')
+        deno = @('run', 'compile', 'bundle', 'test', 'lint', 'fmt', 'cache', 'info', 'doc', 'upgrade')
+    }
+
+    Register-ArgumentCompleter -Native -CommandName git, npm, deno -ScriptBlock {
+        param($wordToComplete, $commandAst, $cursorPosition)
+        $null = $cursorPosition
+        $completionWord = $wordToComplete
+        $map = $completionMap
+        $command = $commandAst.CommandElements[0].Value
+        if ($map.ContainsKey($command)) {
+            $map[$command] |
+                Where-Object { $_ -like "$completionWord*" } |
+                ForEach-Object { [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_) }
+        }
+    }.GetNewClosure()
+
+    if (Test-Command dotnet) {
+        Register-ArgumentCompleter -Native -CommandName dotnet -ScriptBlock {
+            param($wordToComplete, $commandAst, $cursorPosition)
+            $null = $wordToComplete
+            dotnet complete --position $cursorPosition $commandAst.ToString() |
+                ForEach-Object { [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_) }
         }
     }
 }
-Register-ArgumentCompleter -Native -CommandName git, npm, deno -ScriptBlock $scriptblock
 
-$scriptblock = {
-    param($wordToComplete, $commandAst, $cursorPosition)
-    dotnet complete --position $cursorPosition $commandAst.ToString() |
-    ForEach-Object {
-        [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
+function Resolve-OhMyPoshTheme {
+    $candidates = @(
+        $env:POSH_THEME,
+        (Join-Path $profileDir 'cobalt2.omp.json'),
+        (Join-Path $HOME 'cobalt2.omp.json')
+    ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+
+    foreach ($candidate in $candidates) {
+        if (Test-Path -Path $candidate -PathType Leaf) {
+            return $candidate
+        }
     }
-}
-Register-ArgumentCompleter -Native -CommandName dotnet -ScriptBlock $scriptblock
 
-if (Get-Command zoxide -ErrorAction SilentlyContinue) {
-    Invoke-Expression (& { (zoxide init --cmd z powershell | Out-String) })
+    return $null
+}
+
+function Initialize-PromptTool {
+    if (-not $isInteractiveShell) {
+        return
+    }
+
+    if (Get-Command -Name 'Get-Theme_Override' -ErrorAction SilentlyContinue) {
+        Get-Theme_Override
+    } elseif (Test-Command oh-my-posh) {
+        $theme = Resolve-OhMyPoshTheme
+        if ($theme) {
+            oh-my-posh init pwsh --config $theme | Invoke-Expression
+        } elseif ($isInteractiveShell) {
+            Write-Warning 'Oh My Posh theme not found. Run setup.ps1 to install cobalt2.omp.json.'
+        }
+    } elseif ($isInteractiveShell) {
+        Write-Warning 'oh-my-posh is not installed. Run setup.ps1 to install dependencies.'
+    }
+
+    if (Test-Command zoxide) {
+        Invoke-Expression (& { (zoxide init --cmd z powershell | Out-String) })
+    } elseif ($isInteractiveShell) {
+        Write-Warning 'zoxide is not installed. Run setup.ps1 to install dependencies.'
+    }
 }
 
 function Show-Help {
@@ -715,6 +1023,7 @@ $($PSStyle.Foreground.Cyan)PowerShell Profile Help$($PSStyle.Reset)
 $($PSStyle.Foreground.Yellow)=======================$($PSStyle.Reset)
 $($PSStyle.Foreground.Green)Edit-Profile$($PSStyle.Reset) - Opens the current user's profile for editing using the configured editor.
 $($PSStyle.Foreground.Green)reload$($PSStyle.Reset) - Reloads the PowerShell profile.
+$($PSStyle.Foreground.Green)Invoke-Profile$($PSStyle.Reset) - Dot-sources the current user's profile into this session.
 $($PSStyle.Foreground.Green)Update-Profile$($PSStyle.Reset) - Checks for profile updates from a remote repository and updates if necessary.
 $($PSStyle.Foreground.Green)Update-PowerShell$($PSStyle.Reset) - Checks for the latest PowerShell release and updates if a new version is available.
 $($PSStyle.Foreground.Green)Uninstall-Profile$($PSStyle.Reset) - Removes the profile configuration (packages remain installed).
@@ -731,7 +1040,7 @@ $($PSStyle.Foreground.Green)open$($PSStyle.Reset) [path] - Open current or speci
 
 $($PSStyle.Foreground.Cyan)Git Shortcuts$($PSStyle.Reset)
 $($PSStyle.Foreground.Yellow)=======================$($PSStyle.Reset)
-$($PSStyle.Foreground.Green)g$($PSStyle.Reset) - Changes to the GitHub directory (via zoxide).
+$($PSStyle.Foreground.Green)g$($PSStyle.Reset) - Changes to the GitHub directory (via zoxide, falls back to ~\github).
 $($PSStyle.Foreground.Green)ga$($PSStyle.Reset) - Shortcut for 'git add .'.
 $($PSStyle.Foreground.Green)gb$($PSStyle.Reset) - Shortcut for 'git branch'.
 $($PSStyle.Foreground.Green)gc$($PSStyle.Reset) <message> - Shortcut for 'git commit -m'.
@@ -740,15 +1049,15 @@ $($PSStyle.Foreground.Green)gco$($PSStyle.Reset) <branch> - Shortcut for 'git ch
 $($PSStyle.Foreground.Green)gcom$($PSStyle.Reset) <message> - Adds all changes and commits with the specified message.
 $($PSStyle.Foreground.Green)gd$($PSStyle.Reset) - Shortcut for 'git diff'.
 $($PSStyle.Foreground.Green)glog$($PSStyle.Reset) - Pretty git log (last 20 commits).
+$($PSStyle.Foreground.Green)gp$($PSStyle.Reset) / $($PSStyle.Foreground.Green)gpush$($PSStyle.Reset) - Shortcut for 'git push'.
 $($PSStyle.Foreground.Green)gpull$($PSStyle.Reset) - Shortcut for 'git pull'.
-$($PSStyle.Foreground.Green)gpush$($PSStyle.Reset) - Shortcut for 'git push'.
 $($PSStyle.Foreground.Green)gs$($PSStyle.Reset) - Shortcut for 'git status'.
 $($PSStyle.Foreground.Green)gss$($PSStyle.Reset) - Shortcut for 'git stash'.
 $($PSStyle.Foreground.Green)gsp$($PSStyle.Reset) - Shortcut for 'git stash pop'.
 $($PSStyle.Foreground.Green)lazyg$($PSStyle.Reset) <message> - Add all, commit, and push in one command.
 $($PSStyle.Foreground.Green)gpr$($PSStyle.Reset) - Push current branch and create a pull request (via gh).
 $($PSStyle.Foreground.Green)gclean$($PSStyle.Reset) - Delete local branches already merged into main.
-$($PSStyle.Foreground.Green)gwip$($PSStyle.Reset) - Quick 'work in progress' commit.
+$($PSStyle.Foreground.Green)gwip$($PSStyle.Reset) - Quick "work in progress" commit.
 
 $($PSStyle.Foreground.Cyan)Docker$($PSStyle.Reset)
 $($PSStyle.Foreground.Yellow)=======================$($PSStyle.Reset)
@@ -833,36 +1142,15 @@ Use '$($PSStyle.Foreground.Magenta)Show-Help$($PSStyle.Reset)' to display this h
     Write-Host $helpText
 }
 
-if (Test-Path "$PSScriptRoot\CTTcustom.ps1") {
-    Invoke-Expression -Command "& `"$PSScriptRoot\CTTcustom.ps1`""
-}
+Set-Alias -Name gp -Value gpush -Force
 
-if ($null -eq $lastExec -or ($lastExec.AddDays($updateInterval) -lt (Get-Date))) {
-    $_updateUrl = "$repo_root/powershell-profile/main/Microsoft.PowerShell_profile.ps1"
-    $_currentHash = (Get-FileHash $PROFILE -Algorithm SHA256).Hash
-    $_rs = [runspacefactory]::CreateRunspace()
-    $_rs.Open()
-    $_ps = [powershell]::Create()
-    $_ps.Runspace = $_rs
-    [void]$_ps.AddScript({
-        param($Url, $CachePath, $CurrentHash, $TimePath)
-        try {
-            $wc = [System.Net.WebClient]::new()
-            $content = $wc.DownloadString($Url)
-            $wc.Dispose()
-            $tmp = [System.IO.Path]::GetTempFileName()
-            [System.IO.File]::WriteAllText($tmp, $content)
-            $sha = [System.Security.Cryptography.SHA256]::Create()
-            $hash = [BitConverter]::ToString($sha.ComputeHash([System.IO.File]::ReadAllBytes($tmp))) -replace '-'
-            $sha.Dispose()
-            if ($hash -ne $CurrentHash) {
-                [System.IO.File]::Copy($tmp, $CachePath, $true)
-            }
-            [System.IO.File]::Delete($tmp)
-            [System.IO.File]::WriteAllText($TimePath, (Get-Date).ToString('yyyy-MM-dd'))
-        } catch { }
-    }).AddArgument($_updateUrl).AddArgument($cachedProfilePath).AddArgument($_currentHash).AddArgument($timeFilePath)
-    [void]$_ps.BeginInvoke()
-}
+Initialize-PSReadLine
+Register-CustomCompletion
+Initialize-PromptTool
+Invoke-ScheduledProfileUpdate
 
-Write-Host "$($PSStyle.Foreground.Yellow)Use 'Show-Help' to display help$($PSStyle.Reset)"
+if ($showHelpOnLaunch) {
+    Show-Help
+} elseif ($isInteractiveShell) {
+    Write-Host "Use 'Show-Help' to display help" -ForegroundColor Yellow
+}
