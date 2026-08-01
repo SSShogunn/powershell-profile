@@ -1,0 +1,54 @@
+{
+  "$schema": "https://raw.githubusercontent.com/JanDeDobbeleer/oh-my-posh/main/themes/schema.json",
+  "blocks": [
+    {
+      "alignment": "left",
+      "newline": false,
+      "segments": [
+        {
+          "foreground": "default",
+          "options": {
+            "folder_icon": "/",
+            "folder_separator_icon": " / ",
+            "home_icon": "~",
+            "style": "agnoster_full"
+          },
+          "style": "plain",
+          "template": "[{{ url .Path (print \"file:///\" (replace \"\\\\\" \"/\" .PWD)) }}]",
+          "type": "path"
+        },
+        {
+          "foreground": "default",
+          "options": {
+            "always_enabled": true
+          },
+          "style": "plain",
+          "template": " $ ",
+          "type": "status"
+        }
+      ],
+      "type": "prompt"
+    },
+    {
+      "alignment": "right",
+      "segments": [
+        {
+          "foreground": "default",
+          "options": {
+            "threshold": 500
+          },
+          "style": "plain",
+          "template": "{{ .FormattedMs }}",
+          "type": "executiontime"
+        }
+      ],
+      "type": "prompt"
+    }
+  ],
+  "console_title_template": "{{ .Folder }}",
+  "transient_prompt": {
+    "background": "transparent",
+    "template": " "
+  },
+  "version": 4
+}

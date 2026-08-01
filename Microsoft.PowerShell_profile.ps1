@@ -979,8 +979,8 @@ function Register-CustomCompletion {
 function Resolve-OhMyPoshTheme {
     $candidates = @(
         $env:POSH_THEME,
-        (Join-Path $profileDir 'cobalt2.omp.json'),
-        (Join-Path $HOME 'cobalt2.omp.json')
+        (Join-Path $profileDir 'uew.omp.json'),
+        (Join-Path $HOME 'uew.omp.json')
     ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
 
     foreach ($candidate in $candidates) {
@@ -1004,7 +1004,7 @@ function Initialize-PromptTool {
         if ($theme) {
             oh-my-posh init pwsh --config $theme | Invoke-Expression
         } elseif ($isInteractiveShell) {
-            Write-Warning 'Oh My Posh theme not found. Run setup.ps1 to install cobalt2.omp.json.'
+            Write-Warning 'Oh My Posh theme not found. Run setup.ps1 to install uew.omp.json.'
         }
     } elseif ($isInteractiveShell) {
         Write-Warning 'oh-my-posh is not installed. Run setup.ps1 to install dependencies.'

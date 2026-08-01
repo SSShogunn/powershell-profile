@@ -1,5 +1,5 @@
 $profileSourceUri = 'https://github.com/SSShogunn/powershell-profile/raw/main/Microsoft.PowerShell_profile.ps1'
-$themeSourceUri = 'https://raw.githubusercontent.com/JanDeDobbeleer/oh-my-posh/main/themes/cobalt2.omp.json'
+$themeSourceUri = 'https://github.com/SSShogunn/powershell-profile/raw/main/uew.omp.json'
 
 function Enable-Tls12 {
     try {
@@ -127,7 +127,7 @@ function Install-WinGetPackage {
 
 function Install-OhMyPoshTheme {
     param(
-        [string]$ThemeName = 'cobalt2',
+        [string]$ThemeName = 'uew',
         [string]$ThemeUri = $themeSourceUri
     )
 
