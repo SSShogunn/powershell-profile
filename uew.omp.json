@@ -14,17 +14,8 @@
             "style": "agnoster_full"
           },
           "style": "plain",
-          "template": "[{{ .Path }}]",
+          "template": "[{{ url .Path (print \"file:///\" (replace \"\\\\\" \"/\" .PWD)) }}]",
           "type": "path"
-        },
-        {
-          "foreground": "default",
-          "options": {
-            "threshold": 500
-          },
-          "style": "plain",
-          "template": " {{ .FormattedMs }}",
-          "type": "executiontime"
         },
         {
           "foreground": "default",
@@ -37,6 +28,20 @@
         }
       ],
       "type": "prompt"
+    },
+    {
+      "type": "rprompt",
+      "segments": [
+        {
+          "foreground": "default",
+          "options": {
+            "threshold": 500
+          },
+          "style": "plain",
+          "template": "{{ .FormattedMs }}",
+          "type": "executiontime"
+        }
+      ]
     }
   ],
   "console_title_template": "{{ .Folder }}",
