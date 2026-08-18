@@ -164,6 +164,47 @@ function Uninstall-Profile {
     Write-Host "`nRestart your terminal to complete the uninstallation." -ForegroundColor Cyan
 }
 
+function Update-OhMyPoshTheme {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param([switch]$Force)
+
+    $url = "$repo_root/powershell-profile/main/uew.omp.json"
+    $target = Join-Path $profileDir 'uew.omp.json'
+    $tempFile = Join-Path $env:TEMP 'uew.omp.json'
+
+    try {
+        Save-UriToFile -Uri $url -OutFile $tempFile
+
+        $targetExists = Test-Path -Path $target -PathType Leaf
+        $oldHash = if ($targetExists) { (Get-FileHash -Path $target).Hash } else { $null }
+        $newHash = (Get-FileHash -Path $tempFile).Hash
+
+        if (-not $Force -and $targetExists -and $oldHash -eq $newHash) {
+            return $true
+        }
+
+        if ($PSCmdlet.ShouldProcess($target, 'Update Oh My Posh theme')) {
+            $targetDir = Split-Path -Path $target -Parent
+            if (-not (Test-Path -Path $targetDir)) {
+                New-Item -Path $targetDir -ItemType Directory -Force | Out-Null
+            }
+
+            Copy-Item -Path $tempFile -Destination $target -Force
+            if ($isInteractiveShell) {
+                Write-Host 'Oh My Posh theme has been updated. Restart your shell to see the new prompt.' -ForegroundColor Magenta
+            }
+        }
+
+        return $true
+    } catch {
+        Write-Warning "Unable to check for theme updates: $_"
+        return $false
+    } finally {
+        Remove-Item -Path $tempFile -ErrorAction SilentlyContinue
+    }
+}
+
 function Update-Profile {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
@@ -184,6 +225,8 @@ function Update-Profile {
         $targetExists = Test-Path -Path $target -PathType Leaf
         $oldHash = if ($targetExists) { (Get-FileHash -Path $target).Hash } else { $null }
         $newHash = (Get-FileHash -Path $tempFile).Hash
+
+        Update-OhMyPoshTheme -Force:$Force | Out-Null
 
         if (-not $Force -and $targetExists -and $oldHash -eq $newHash) {
             if ($isInteractiveShell) {
