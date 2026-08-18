@@ -8,6 +8,15 @@
         {
           "foreground": "default",
           "options": {
+            "display_mode": "environment"
+          },
+          "style": "plain",
+          "template": "{{ if .Venv }}({{ .Venv }}) {{ end }}",
+          "type": "python"
+        },
+        {
+          "foreground": "default",
+          "options": {
             "folder_icon": "/",
             "folder_separator_icon": " / ",
             "home_icon": "~",
